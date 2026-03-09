@@ -1,6 +1,6 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from logging import getLevelNamesMapping
-from typing import TYPE_CHECKING
 
 import structlog
 from dishka import make_async_container
@@ -11,10 +11,6 @@ from event_admin.config import Settings
 from event_admin.ioc import AppProvider
 from event_admin.logger import setup_logger
 from event_admin.routes import root_router
-
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
 
 
 container = make_async_container(AppProvider(), FastapiProvider())
@@ -28,14 +24,16 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     setup_logger(log_level=log_level, console_render=settings.debug)
 
     logger.info(
-        "Starting event receiver application",
+        "Starting event admin application",
         log_level=settings.log_level,
         debug=settings.debug,
     )
 
     yield
 
-    logger.info("Event receiver application shutdown complete")
+    logger.info("Shutting down event admin application")
+    await container.close()
+    logger.info("Event admin application shutdown complete")
 
 
 app = FastAPI(title="event-admin", version="0.1.0", lifespan=lifespan)

@@ -59,6 +59,8 @@ class BookingRecord(Base):
     booking_uid: Mapped[str] = mapped_column(Text, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     current_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_organizer_participant_ref_id: Mapped[int | None] = mapped_column(
         BigInteger,

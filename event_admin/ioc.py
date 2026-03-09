@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from collections.abc import AsyncGenerator
 
 import structlog
 from dishka import Provider, Scope, provide
@@ -9,14 +9,13 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from event_admin.adapters.bookings_db import BookingsDBAdapter
 from event_admin.adapters.sql import SqlExecutor
 from event_admin.config import Settings
+from event_admin.controllers.bookings import BookingsController
+from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdapter
+from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
-    from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +69,14 @@ class AppProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def provide_sql_executor(self, session: AsyncSession) -> ISqlExecutor:
         return SqlExecutor(session)
+
+    @provide(scope=Scope.REQUEST)
+    def provide_bookings_db_adapter(self, sql_executor: ISqlExecutor) -> IBookingsDBAdapter:
+        return BookingsDBAdapter(sql_executor)
+
+    @provide(scope=Scope.REQUEST)
+    def provide_bookings_controller(self, bookings_db_adapter: IBookingsDBAdapter) -> IBookingsController:
+        return BookingsController(bookings_db_adapter)
 
     @provide(scope=Scope.APP)
     def provide_sql_executor_factory(self) -> ISqlExecutorFactory:

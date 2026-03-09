@@ -14,8 +14,6 @@ dependencies = [
     "tenacity>=9.1.4",
     "ujson>=5.11.0",
     "uvicorn>=0.41.0",
-
-
 ]
 [dependency-groups]
 dev = [
@@ -58,6 +56,9 @@ ignore = [
     "RET501",
     "RUF001",
     "S311",
+    "TC001",
+    "TC002",
+    "TC003",
     "TRY003",
     "UP040",
 ]
