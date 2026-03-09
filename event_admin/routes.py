@@ -6,7 +6,11 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.interfaces.bookings import IBookingsController
-from event_admin.schemas.bookings import BookingDetailsResponse, BookingListItemResponse
+from event_admin.schemas.bookings import (
+    BookingDetailsResponse,
+    BookingFutureBouncedEmailItemResponse,
+    BookingListItemResponse,
+)
 
 
 root_router = APIRouter(route_class=DishkaRoute)
@@ -35,6 +39,17 @@ async def list_bookings(
     )
     booking_dtos = await controller.list_bookings(filters_dto)
     return [BookingListItemResponse.from_dto(dto) for dto in booking_dtos]
+
+
+@root_router.get(
+    "/bookings/future-email-bounced",
+    response_model=list[BookingFutureBouncedEmailItemResponse],
+)
+async def list_future_email_bounced_bookings(
+    controller: FromDishka[IBookingsController] = None,
+) -> list[BookingFutureBouncedEmailItemResponse]:
+    booking_dtos = await controller.list_future_email_bounced_bookings()
+    return [BookingFutureBouncedEmailItemResponse.from_dto(dto) for dto in booking_dtos]
 
 
 @root_router.get("/bookings/{booking_uid}", response_model=BookingDetailsResponse)

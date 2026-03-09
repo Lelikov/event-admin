@@ -146,3 +146,15 @@ class BookingDetailsDto:
     telegram_notifications: list[BookingTelegramNotificationItemDto]
     chat_events: list[BookingChatEventItemDto]
     video_events: list[BookingVideoEventItemDto]
+
+
+@dataclass(slots=True, frozen=True)
+class BookingFutureBouncedEmailItemDto:
+    id: int
+    booking_uid: str
+    start_date: datetime
+    end_time: datetime | None
+    current_status: str | None
+    organizer_participant: ParticipantDto | None
+    client_participant: ParticipantDto | None
+    email_bounce_statuses: tuple[str, ...]

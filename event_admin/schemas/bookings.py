@@ -8,6 +8,7 @@ from event_admin.dto.bookings import (
     BookingDetailsDto,
     BookingEmailNotificationItemDto,
     BookingEmailStatusHistoryItemDto,
+    BookingFutureBouncedEmailItemDto,
     BookingListItemDto,
     BookingMeetingLinkItemDto,
     BookingOrganizerHistoryItemDto,
@@ -246,4 +247,34 @@ class BookingDetailsResponse(BaseModel):
             ],
             chat_events=[BookingChatEventItemResponse.from_dto(item) for item in dto.chat_events],
             video_events=[BookingVideoEventItemResponse.from_dto(item) for item in dto.video_events],
+        )
+
+
+class BookingFutureBouncedEmailItemResponse(BaseModel):
+    id: int
+    booking_uid: str
+    start_date: datetime
+    end_time: datetime | None
+    current_status: str | None
+    organizer_participant: ParticipantResponse | None
+    client_participant: ParticipantResponse | None
+    email_bounce_statuses: list[str]
+
+    @classmethod
+    def from_dto(cls, dto: BookingFutureBouncedEmailItemDto) -> BookingFutureBouncedEmailItemResponse:
+        return cls(
+            id=dto.id,
+            booking_uid=dto.booking_uid,
+            start_date=dto.start_date,
+            end_time=dto.end_time,
+            current_status=dto.current_status,
+            organizer_participant=(
+                ParticipantResponse.from_dto(dto.organizer_participant)
+                if dto.organizer_participant is not None
+                else None
+            ),
+            client_participant=(
+                ParticipantResponse.from_dto(dto.client_participant) if dto.client_participant is not None else None
+            ),
+            email_bounce_statuses=list(dto.email_bounce_statuses),
         )

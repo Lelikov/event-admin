@@ -5,6 +5,7 @@ from event_admin.dto.bookings import (
     BookingDetailsDto,
     BookingEmailNotificationItemDto,
     BookingEmailStatusHistoryItemDto,
+    BookingFutureBouncedEmailItemDto,
     BookingListFiltersDto,
     BookingListItemDto,
     BookingMeetingLinkItemDto,
@@ -435,6 +436,61 @@ class BookingsDBAdapter(IBookingsDBAdapter):
             video_events=video_events,
         )
 
+    async def list_future_email_bounced_bookings(self) -> list[BookingFutureBouncedEmailItemDto]:
+        rows = await self.sql_executor.fetch_all(
+            """
+            SELECT
+                b.id,
+                b.booking_uid,
+                b.start_time AS start_date,
+                b.end_time,
+                b.current_status,
+                op.id AS organizer_id,
+                op.email AS organizer_email,
+                op.role AS organizer_role,
+                op.time_zone AS organizer_time_zone,
+                op.created_at AS organizer_created_at,
+                op.updated_at AS organizer_updated_at,
+                cp.id AS client_id,
+                cp.email AS client_email,
+                cp.role AS client_role,
+                cp.time_zone AS client_time_zone,
+                cp.created_at AS client_created_at,
+                cp.updated_at AS client_updated_at,
+                ARRAY_AGG(DISTINCT ben.last_status) FILTER (
+                    WHERE ben.last_status IN ('hard_bounced', 'soft_bounced')
+                ) AS email_bounce_statuses
+            FROM bookings b
+            JOIN booking_email_notifications ben ON ben.booking_ref_id = b.id
+            LEFT JOIN participants op ON op.id = b.current_organizer_participant_ref_id
+            LEFT JOIN participants cp ON cp.id = b.current_client_participant_ref_id
+            WHERE b.start_time > now()
+              AND ben.last_status IN ('hard_bounced', 'soft_bounced')
+            GROUP BY
+                b.id,
+                b.booking_uid,
+                b.start_time,
+                b.end_time,
+                b.current_status,
+                op.id,
+                op.email,
+                op.role,
+                op.time_zone,
+                op.created_at,
+                op.updated_at,
+                cp.id,
+                cp.email,
+                cp.role,
+                cp.time_zone,
+                cp.created_at,
+                cp.updated_at
+            ORDER BY b.start_time ASC, b.id ASC
+            """,
+            {},
+        )
+
+        return [self._map_future_bounced_row_to_dto(row) for row in rows]
+
     @staticmethod
     def _map_row_to_dto(row: RowMapping) -> BookingListItemDto:
         organizer_participant = None
@@ -493,3 +549,41 @@ class BookingsDBAdapter(IBookingsDBAdapter):
         if row[f"{prefix}_id"] is None:
             return None
         return cls._map_prefixed_participant(row, prefix)
+
+    @staticmethod
+    def _map_future_bounced_row_to_dto(row: RowMapping) -> BookingFutureBouncedEmailItemDto:
+        organizer_participant = None
+        if row["organizer_id"] is not None:
+            organizer_participant = ParticipantDto(
+                id=row["organizer_id"],
+                email=row["organizer_email"],
+                role=row["organizer_role"],
+                time_zone=row["organizer_time_zone"],
+                created_at=row["organizer_created_at"],
+                updated_at=row["organizer_updated_at"],
+            )
+
+        client_participant = None
+        if row["client_id"] is not None:
+            client_participant = ParticipantDto(
+                id=row["client_id"],
+                email=row["client_email"],
+                role=row["client_role"],
+                time_zone=row["client_time_zone"],
+                created_at=row["client_created_at"],
+                updated_at=row["client_updated_at"],
+            )
+
+        bounce_statuses_raw = row["email_bounce_statuses"] or []
+        email_bounce_statuses = tuple(str(status) for status in bounce_statuses_raw)
+
+        return BookingFutureBouncedEmailItemDto(
+            id=row["id"],
+            booking_uid=row["booking_uid"],
+            start_date=row["start_date"],
+            end_time=row["end_time"],
+            current_status=row["current_status"],
+            organizer_participant=organizer_participant,
+            client_participant=client_participant,
+            email_bounce_statuses=email_bounce_statuses,
+        )
