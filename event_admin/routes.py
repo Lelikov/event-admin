@@ -2,11 +2,11 @@ from typing import Annotated
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.interfaces.bookings import IBookingsController
-from event_admin.schemas.bookings import BookingListItemResponse
+from event_admin.schemas.bookings import BookingDetailsResponse, BookingListItemResponse
 
 
 root_router = APIRouter(route_class=DishkaRoute)
@@ -28,10 +28,24 @@ async def list_bookings(
     controller: FromDishka[IBookingsController] = None,
 ) -> list[BookingListItemResponse]:
     filters_dto = BookingListFiltersDto(
-        booking_uids=booking_uids or [],
-        current_statuses=current_statuses or [],
-        current_organizer_participant_ref_ids=current_organizer_participant_ref_ids or [],
-        current_client_participant_ref_ids=current_client_participant_ref_ids or [],
+        booking_uids=tuple(booking_uids or []),
+        current_statuses=tuple(current_statuses or []),
+        current_organizer_participant_ref_ids=tuple(current_organizer_participant_ref_ids or []),
+        current_client_participant_ref_ids=tuple(current_client_participant_ref_ids or []),
     )
     booking_dtos = await controller.list_bookings(filters_dto)
     return [BookingListItemResponse.from_dto(dto) for dto in booking_dtos]
+
+
+@root_router.get("/bookings/{booking_uid}", response_model=BookingDetailsResponse)
+async def get_booking_details(
+    booking_uid: Annotated[str, Path(min_length=1)],
+    controller: FromDishka[IBookingsController] = None,
+) -> BookingDetailsResponse:
+    booking_details_dto = await controller.get_booking_details(booking_uid)
+    if booking_details_dto is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Booking with uid={booking_uid!r} not found",
+        )
+    return BookingDetailsResponse.from_dto(booking_details_dto)

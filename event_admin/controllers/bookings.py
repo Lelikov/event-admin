@@ -1,4 +1,4 @@
-from event_admin.dto.bookings import BookingListFiltersDto, BookingListItemDto
+from event_admin.dto.bookings import BookingDetailsDto, BookingListFiltersDto, BookingListItemDto
 from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdapter
 
 
@@ -8,3 +8,6 @@ class BookingsController(IBookingsController):
 
     async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]:
         return await self.bookings_db_adapter.list_bookings(filters)
+
+    async def get_booking_details(self, booking_uid: str) -> BookingDetailsDto | None:
+        return await self.bookings_db_adapter.get_booking_details(booking_uid)

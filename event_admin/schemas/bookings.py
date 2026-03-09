@@ -1,8 +1,20 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
-from event_admin.dto.bookings import BookingListItemDto, ParticipantDto
+from event_admin.dto.bookings import (
+    BookingChatEventItemDto,
+    BookingDetailsDto,
+    BookingEmailNotificationItemDto,
+    BookingEmailStatusHistoryItemDto,
+    BookingListItemDto,
+    BookingMeetingLinkItemDto,
+    BookingOrganizerHistoryItemDto,
+    BookingTelegramNotificationItemDto,
+    BookingVideoEventItemDto,
+    ParticipantDto,
+)
 
 
 class ParticipantResponse(BaseModel):
@@ -10,8 +22,6 @@ class ParticipantResponse(BaseModel):
     email: str
     role: str | None
     time_zone: str | None
-    created_at: datetime
-    updated_at: datetime
 
     @classmethod
     def from_dto(cls, dto: ParticipantDto) -> ParticipantResponse:
@@ -20,8 +30,6 @@ class ParticipantResponse(BaseModel):
             email=dto.email,
             role=dto.role,
             time_zone=dto.time_zone,
-            created_at=dto.created_at,
-            updated_at=dto.updated_at,
         )
 
 
@@ -58,4 +66,184 @@ class BookingListItemResponse(BaseModel):
             client_participant=(
                 ParticipantResponse.from_dto(dto.client_participant) if dto.client_participant is not None else None
             ),
+        )
+
+
+class BookingOrganizerHistoryItemResponse(BaseModel):
+    id: int
+    organizer_participant: ParticipantResponse
+    effective_from: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingOrganizerHistoryItemDto) -> BookingOrganizerHistoryItemResponse:
+        return cls(
+            id=dto.id,
+            organizer_participant=ParticipantResponse.from_dto(dto.organizer_participant),
+            effective_from=dto.effective_from,
+        )
+
+
+class BookingMeetingLinkItemResponse(BaseModel):
+    id: int
+    participant: ParticipantResponse
+    meeting_url: str
+    created_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingMeetingLinkItemDto) -> BookingMeetingLinkItemResponse:
+        return cls(
+            id=dto.id,
+            participant=ParticipantResponse.from_dto(dto.participant),
+            meeting_url=dto.meeting_url,
+            created_at=dto.created_at,
+        )
+
+
+class BookingEmailStatusHistoryItemResponse(BaseModel):
+    id: int
+    status: str | None
+    clicked_url: str | None
+    created_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingEmailStatusHistoryItemDto) -> BookingEmailStatusHistoryItemResponse:
+        return cls(
+            id=dto.id,
+            status=dto.status,
+            clicked_url=dto.clicked_url,
+            created_at=dto.created_at,
+        )
+
+
+class BookingEmailNotificationItemResponse(BaseModel):
+    id: int
+    participant: ParticipantResponse | None
+    trigger_event: str | None
+    sent_at: datetime | None
+    last_status: str | None
+    status_history: list[BookingEmailStatusHistoryItemResponse]
+
+    @classmethod
+    def from_dto(cls, dto: BookingEmailNotificationItemDto) -> BookingEmailNotificationItemResponse:
+        return cls(
+            id=dto.id,
+            participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            trigger_event=dto.trigger_event,
+            sent_at=dto.sent_at,
+            last_status=dto.last_status,
+            status_history=[BookingEmailStatusHistoryItemResponse.from_dto(item) for item in dto.status_history],
+        )
+
+
+class BookingTelegramNotificationItemResponse(BaseModel):
+    id: int
+    participant_ref_id: int | None
+    participant: ParticipantResponse | None
+    trigger_event: str | None
+    source_event_id: str
+    sent_at: datetime
+    created_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingTelegramNotificationItemDto) -> BookingTelegramNotificationItemResponse:
+        return cls(
+            id=dto.id,
+            participant_ref_id=dto.participant_ref_id,
+            participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            trigger_event=dto.trigger_event,
+            source_event_id=dto.source_event_id,
+            sent_at=dto.sent_at,
+            created_at=dto.created_at,
+        )
+
+
+class BookingChatEventItemResponse(BaseModel):
+    id: int
+    chat_event_type: str
+    participant: ParticipantResponse | None
+    is_read: bool | None
+    text_preview: str | None
+    occurred_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingChatEventItemDto) -> BookingChatEventItemResponse:
+        return cls(
+            id=dto.id,
+            chat_event_type=dto.chat_event_type,
+            participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            is_read=dto.is_read,
+            text_preview=dto.text_preview,
+            occurred_at=dto.occurred_at,
+            updated_at=dto.updated_at,
+        )
+
+
+class BookingVideoEventItemResponse(BaseModel):
+    id: int
+    raw_event_id: str
+    video_event_type: str
+    participant_role: str | None
+    participant_ref_id: int | None
+    participant: ParticipantResponse | None
+    event_time: datetime | None
+    payload: dict[str, Any]
+
+    @classmethod
+    def from_dto(cls, dto: BookingVideoEventItemDto) -> BookingVideoEventItemResponse:
+        return cls(
+            id=dto.id,
+            raw_event_id=dto.raw_event_id,
+            video_event_type=dto.video_event_type,
+            participant_role=dto.participant_role,
+            participant_ref_id=dto.participant_ref_id,
+            participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            event_time=dto.event_time,
+            payload=dto.payload,
+        )
+
+
+class BookingDetailsResponse(BaseModel):
+    id: int
+    booking_uid: str
+    start_time: datetime | None
+    end_time: datetime | None
+    current_status: str | None
+    created_at: datetime
+    current_organizer_participant: ParticipantResponse | None
+    current_client_participant: ParticipantResponse | None
+    organizer_history: list[BookingOrganizerHistoryItemResponse]
+    meeting_links: list[BookingMeetingLinkItemResponse]
+    email_notifications: list[BookingEmailNotificationItemResponse]
+    telegram_notifications: list[BookingTelegramNotificationItemResponse]
+    chat_events: list[BookingChatEventItemResponse]
+    video_events: list[BookingVideoEventItemResponse]
+
+    @classmethod
+    def from_dto(cls, dto: BookingDetailsDto) -> BookingDetailsResponse:
+        return cls(
+            id=dto.id,
+            booking_uid=dto.booking_uid,
+            start_time=dto.start_time,
+            end_time=dto.end_time,
+            current_status=dto.current_status,
+            created_at=dto.created_at,
+            current_organizer_participant=(
+                ParticipantResponse.from_dto(dto.current_organizer_participant)
+                if dto.current_organizer_participant
+                else None
+            ),
+            current_client_participant=(
+                ParticipantResponse.from_dto(dto.current_client_participant) if dto.current_client_participant else None
+            ),
+            organizer_history=[BookingOrganizerHistoryItemResponse.from_dto(item) for item in dto.organizer_history],
+            meeting_links=[BookingMeetingLinkItemResponse.from_dto(item) for item in dto.meeting_links],
+            email_notifications=[
+                BookingEmailNotificationItemResponse.from_dto(item) for item in dto.email_notifications
+            ],
+            telegram_notifications=[
+                BookingTelegramNotificationItemResponse.from_dto(item) for item in dto.telegram_notifications
+            ],
+            chat_events=[BookingChatEventItemResponse.from_dto(item) for item in dto.chat_events],
+            video_events=[BookingVideoEventItemResponse.from_dto(item) for item in dto.video_events],
         )
