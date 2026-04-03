@@ -13,6 +13,7 @@ from event_admin.dto.bookings import (
     BookingTelegramNotificationItemDto,
     BookingVideoEventItemDto,
     ParticipantDto,
+    ParticipantListFiltersDto,
 )
 from event_admin.interfaces.bookings import IBookingsDBAdapter
 from event_admin.interfaces.sql import ISqlExecutor
@@ -25,6 +26,47 @@ if TYPE_CHECKING:
 class BookingsDBAdapter(IBookingsDBAdapter):
     def __init__(self, sql_executor: ISqlExecutor) -> None:
         self.sql_executor = sql_executor
+
+    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]:
+        conditions: list[str] = []
+        values: dict = {}
+
+        if filters.roles:
+            conditions.append("p.role = ANY(:roles)")
+            values["roles"] = filters.roles
+
+        if filters.email is not None:
+            conditions.append("p.email ILIKE :email")
+            values["email"] = f"%{filters.email}%"
+
+        query = """
+            SELECT
+                p.id,
+                p.email,
+                p.role,
+                p.time_zone,
+                p.created_at,
+                p.updated_at
+            FROM participants p
+        """
+
+        if conditions:
+            query += "\nWHERE " + " AND ".join(conditions)
+
+        query += "\nORDER BY p.id ASC"
+
+        rows = await self.sql_executor.fetch_all(query, values)
+        return [
+            ParticipantDto(
+                id=row["id"],
+                email=row["email"],
+                role=row["role"],
+                time_zone=row["time_zone"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
 
     async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]:
         conditions: list[str] = []

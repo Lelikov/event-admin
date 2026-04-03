@@ -3,6 +3,8 @@ from event_admin.dto.bookings import (
     BookingFutureBouncedEmailItemDto,
     BookingListFiltersDto,
     BookingListItemDto,
+    ParticipantDto,
+    ParticipantListFiltersDto,
 )
 from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdapter
 
@@ -10,6 +12,9 @@ from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdap
 class BookingsController(IBookingsController):
     def __init__(self, bookings_db_adapter: IBookingsDBAdapter) -> None:
         self.bookings_db_adapter = bookings_db_adapter
+
+    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]:
+        return await self.bookings_db_adapter.list_participants(filters)
 
     async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]:
         return await self.bookings_db_adapter.list_bookings(filters)

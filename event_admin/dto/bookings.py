@@ -4,6 +4,12 @@ from typing import Any
 
 
 @dataclass(slots=True, frozen=True)
+class ParticipantListFiltersDto:
+    roles: tuple[str, ...] = ()
+    email: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class BookingListFiltersDto:
     booking_uids: tuple[str, ...] = ()
     current_statuses: tuple[str, ...] = ()

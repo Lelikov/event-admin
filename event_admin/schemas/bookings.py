@@ -18,6 +18,26 @@ from event_admin.dto.bookings import (
 )
 
 
+class ParticipantListItemResponse(BaseModel):
+    id: int
+    email: str
+    role: str | None
+    time_zone: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: ParticipantDto) -> ParticipantListItemResponse:
+        return cls(
+            id=dto.id,
+            email=dto.email,
+            role=dto.role,
+            time_zone=dto.time_zone,
+            created_at=dto.created_at,
+            updated_at=dto.updated_at,
+        )
+
+
 class ParticipantResponse(BaseModel):
     id: int
     email: str

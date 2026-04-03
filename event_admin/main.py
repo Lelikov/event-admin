@@ -6,6 +6,7 @@ import structlog
 from dishka import make_async_container
 from dishka.integrations.fastapi import FastapiProvider, setup_dishka
 from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
 
 from event_admin.config import Settings
 from event_admin.ioc import AppProvider
@@ -39,3 +40,11 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
 app = FastAPI(title="event-admin", version="0.1.0", lifespan=lifespan)
 setup_dishka(container=container, app=app)
 app.include_router(root_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

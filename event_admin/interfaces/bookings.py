@@ -8,10 +8,14 @@ if TYPE_CHECKING:
         BookingFutureBouncedEmailItemDto,
         BookingListFiltersDto,
         BookingListItemDto,
+        ParticipantDto,
+        ParticipantListFiltersDto,
     )
 
 
 class IBookingsDBAdapter(Protocol):
+    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]: ...
+
     async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]: ...
 
     async def get_booking_details(self, booking_uid: str) -> BookingDetailsDto | None: ...
@@ -20,6 +24,8 @@ class IBookingsDBAdapter(Protocol):
 
 
 class IBookingsController(Protocol):
+    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]: ...
+
     async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]: ...
 
     async def get_booking_details(self, booking_uid: str) -> BookingDetailsDto | None: ...
