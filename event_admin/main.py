@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from event_admin.config import Settings
 from event_admin.ioc import AppProvider
 from event_admin.logger import setup_logger
+from event_admin.middleware import JWTAuthMiddleware
 from event_admin.routes import root_router
 
 
@@ -41,9 +42,11 @@ app = FastAPI(title="event-admin", version="0.1.0", lifespan=lifespan)
 setup_dishka(container=container, app=app)
 app.include_router(root_router)
 
+_settings = Settings()
+app.add_middleware(JWTAuthMiddleware, settings=_settings, public_paths=frozenset({"/auth/login", "/health"}))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
