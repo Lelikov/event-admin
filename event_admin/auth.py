@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated
