@@ -69,10 +69,6 @@ def configure_default_logging(
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level)
 
-    logging.getLogger("aiokafka").setLevel(logging.ERROR)
-    logging.getLogger("asyncio_redis").setLevel(logging.ERROR)
-    logging.getLogger("urllib3").setLevel(logging.ERROR)
-    logging.getLogger("botocore").setLevel(logging.ERROR)
     logging.getLogger("httpcore").setLevel(logging.ERROR)
 
 
