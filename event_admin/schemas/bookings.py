@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -18,40 +19,12 @@ from event_admin.dto.bookings import (
 )
 
 
-class ParticipantListItemResponse(BaseModel):
-    id: int
-    email: str
-    role: str | None
-    time_zone: str | None
-    created_at: datetime
-    updated_at: datetime
-
-    @classmethod
-    def from_dto(cls, dto: ParticipantDto) -> ParticipantListItemResponse:
-        return cls(
-            id=dto.id,
-            email=dto.email,
-            role=dto.role,
-            time_zone=dto.time_zone,
-            created_at=dto.created_at,
-            updated_at=dto.updated_at,
-        )
-
-
 class ParticipantResponse(BaseModel):
-    id: int
-    email: str
-    role: str | None
-    time_zone: str | None
+    user_id: uuid.UUID | None
 
     @classmethod
     def from_dto(cls, dto: ParticipantDto) -> ParticipantResponse:
-        return cls(
-            id=dto.id,
-            email=dto.email,
-            role=dto.role,
-            time_zone=dto.time_zone,
-        )
+        return cls(user_id=dto.user_id)
 
 
 class BookingListItemResponse(BaseModel):
@@ -97,6 +70,7 @@ class BookingOrganizerHistoryItemResponse(BaseModel):
 
     @classmethod
     def from_dto(cls, dto: BookingOrganizerHistoryItemDto) -> BookingOrganizerHistoryItemResponse:
+        # source_event_id, created_at omitted: internal audit fields not needed in API response
         return cls(
             id=dto.id,
             organizer_participant=ParticipantResponse.from_dto(dto.organizer_participant),
@@ -112,6 +86,7 @@ class BookingMeetingLinkItemResponse(BaseModel):
 
     @classmethod
     def from_dto(cls, dto: BookingMeetingLinkItemDto) -> BookingMeetingLinkItemResponse:
+        # source_event_id, occurred_at, updated_at omitted: internal audit fields not needed in API response
         return cls(
             id=dto.id,
             participant=ParticipantResponse.from_dto(dto.participant),
@@ -128,6 +103,8 @@ class BookingEmailStatusHistoryItemResponse(BaseModel):
 
     @classmethod
     def from_dto(cls, dto: BookingEmailStatusHistoryItemDto) -> BookingEmailStatusHistoryItemResponse:
+        # notification_ref_id, status_event_time, source_event_id omitted:
+        # internal tracking fields not needed in API response
         return cls(
             id=dto.id,
             status=dto.status,
@@ -146,6 +123,8 @@ class BookingEmailNotificationItemResponse(BaseModel):
 
     @classmethod
     def from_dto(cls, dto: BookingEmailNotificationItemDto) -> BookingEmailNotificationItemResponse:
+        # job_id, sent_event_id, last_status_event_time, last_status_event_id, last_clicked_url,
+        # created_at, updated_at omitted: internal tracking/audit fields not needed in API response
         return cls(
             id=dto.id,
             participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
@@ -158,7 +137,6 @@ class BookingEmailNotificationItemResponse(BaseModel):
 
 class BookingTelegramNotificationItemResponse(BaseModel):
     id: int
-    participant_ref_id: int | None
     participant: ParticipantResponse | None
     trigger_event: str | None
     source_event_id: str
@@ -169,7 +147,6 @@ class BookingTelegramNotificationItemResponse(BaseModel):
     def from_dto(cls, dto: BookingTelegramNotificationItemDto) -> BookingTelegramNotificationItemResponse:
         return cls(
             id=dto.id,
-            participant_ref_id=dto.participant_ref_id,
             participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
             trigger_event=dto.trigger_event,
             source_event_id=dto.source_event_id,
@@ -205,7 +182,6 @@ class BookingVideoEventItemResponse(BaseModel):
     raw_event_id: str
     video_event_type: str
     participant_role: str | None
-    participant_ref_id: int | None
     participant: ParticipantResponse | None
     event_time: datetime | None
     payload: dict[str, Any]
@@ -217,7 +193,6 @@ class BookingVideoEventItemResponse(BaseModel):
             raw_event_id=dto.raw_event_id,
             video_event_type=dto.video_event_type,
             participant_role=dto.participant_role,
-            participant_ref_id=dto.participant_ref_id,
             participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
             event_time=dto.event_time,
             payload=dto.payload,
@@ -227,10 +202,13 @@ class BookingVideoEventItemResponse(BaseModel):
 class BookingDetailsResponse(BaseModel):
     id: int
     booking_uid: str
+    first_seen_at: datetime
+    last_seen_at: datetime
     start_time: datetime | None
     end_time: datetime | None
     current_status: str | None
     created_at: datetime
+    updated_at: datetime
     current_organizer_participant: ParticipantResponse | None
     current_client_participant: ParticipantResponse | None
     organizer_history: list[BookingOrganizerHistoryItemResponse]
@@ -245,10 +223,13 @@ class BookingDetailsResponse(BaseModel):
         return cls(
             id=dto.id,
             booking_uid=dto.booking_uid,
+            first_seen_at=dto.first_seen_at,
+            last_seen_at=dto.last_seen_at,
             start_time=dto.start_time,
             end_time=dto.end_time,
             current_status=dto.current_status,
             created_at=dto.created_at,
+            updated_at=dto.updated_at,
             current_organizer_participant=(
                 ParticipantResponse.from_dto(dto.current_organizer_participant)
                 if dto.current_organizer_participant
