@@ -42,6 +42,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         settings = self._settings
 
         if settings.debug:
+            request.state.user_payload = {"sub": "debug@local", "role": "admin"}
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
             return response
@@ -63,7 +64,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             request.state.user_payload = {"sub": payload["sub"], "role": payload["role"]}
         except jwt.ExpiredSignatureError:
             return JSONResponse({"detail": "Token expired"}, status_code=401, headers={"X-Request-ID": request_id})
-        except jwt.InvalidTokenError, KeyError:
+        except (jwt.InvalidTokenError, KeyError):
             return JSONResponse({"detail": "Invalid token"}, status_code=401, headers={"X-Request-ID": request_id})
 
         response = await call_next(request)
