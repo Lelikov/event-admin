@@ -10,6 +10,7 @@ from event_admin.dto.bookings import (
     BookingEmailNotificationItemDto,
     BookingEmailStatusHistoryItemDto,
     BookingFutureBouncedEmailItemDto,
+    BookingLifecycleEventItemDto,
     BookingListItemDto,
     BookingMeetingLinkItemDto,
     BookingOrganizerHistoryItemDto,
@@ -199,6 +200,30 @@ class BookingVideoEventItemResponse(BaseModel):
         )
 
 
+class BookingLifecycleEventItemResponse(BaseModel):
+    id: int
+    action: str
+    organizer_participant: ParticipantResponse | None
+    client_participant: ParticipantResponse | None
+    details: dict[str, Any] | None
+    occurred_at: datetime
+
+    @classmethod
+    def from_dto(cls, dto: BookingLifecycleEventItemDto) -> BookingLifecycleEventItemResponse:
+        return cls(
+            id=dto.id,
+            action=dto.action,
+            organizer_participant=(
+                ParticipantResponse.from_dto(dto.organizer_participant) if dto.organizer_participant else None
+            ),
+            client_participant=(
+                ParticipantResponse.from_dto(dto.client_participant) if dto.client_participant else None
+            ),
+            details=dto.details,
+            occurred_at=dto.occurred_at,
+        )
+
+
 class BookingDetailsResponse(BaseModel):
     id: int
     booking_uid: str
@@ -217,6 +242,7 @@ class BookingDetailsResponse(BaseModel):
     telegram_notifications: list[BookingTelegramNotificationItemResponse]
     chat_events: list[BookingChatEventItemResponse]
     video_events: list[BookingVideoEventItemResponse]
+    lifecycle_events: list[BookingLifecycleEventItemResponse]
 
     @classmethod
     def from_dto(cls, dto: BookingDetailsDto) -> BookingDetailsResponse:
@@ -248,6 +274,7 @@ class BookingDetailsResponse(BaseModel):
             ],
             chat_events=[BookingChatEventItemResponse.from_dto(item) for item in dto.chat_events],
             video_events=[BookingVideoEventItemResponse.from_dto(item) for item in dto.video_events],
+            lifecycle_events=[BookingLifecycleEventItemResponse.from_dto(item) for item in dto.lifecycle_events],
         )
 
 
