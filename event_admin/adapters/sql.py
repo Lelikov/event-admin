@@ -19,17 +19,3 @@ class SqlExecutor:
     async def fetch_all(self, query: str, values: dict) -> list[RowMapping]:
         result = await self.session.execute(text(query), values)
         return list(result.mappings().all())
-
-    async def execute(self, query: str, values: dict) -> None:
-        await self.session.execute(text(query), values)
-        await self.session.commit()
-
-    async def execute_in_transaction(self, statements: list[tuple[str, dict]]) -> None:
-        if self.session.in_transaction():
-            for query, values in statements:
-                await self.session.execute(text(query), values)
-            return
-
-        async with self.session.begin():
-            for query, values in statements:
-                await self.session.execute(text(query), values)

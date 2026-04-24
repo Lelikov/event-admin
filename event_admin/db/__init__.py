@@ -1,5 +1,5 @@
-from event_saver.db.base import Base
-from event_saver.db.models import (
+from event_admin.db.base import Base
+from event_admin.db.models import (
     BookingChatEvent,
     BookingEmailNotification,
     BookingEmailStatusHistory,
@@ -7,7 +7,6 @@ from event_saver.db.models import (
     BookingOrganizerHistory,
     BookingRecord,
     BookingVideoEvent,
-    Event,
 )
 
 
@@ -20,5 +19,4 @@ __all__ = [
     "BookingOrganizerHistory",
     "BookingRecord",
     "BookingVideoEvent",
-    "Event",
 ]

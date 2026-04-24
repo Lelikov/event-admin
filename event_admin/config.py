@@ -1,4 +1,4 @@
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,3 +25,14 @@ class Settings(BaseSettings):
         return upper
 
     postgres_dsn: PostgresDsn = Field(strict=True)
+
+    cors_origins: list[str] = Field(default=["http://localhost:5173"])
+
+    jwt_secret_key: str = Field(...)
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24  # 24 hours
+
+    users_service_url: AnyHttpUrl = Field(strict=True)
+    users_service_api_token: str = Field(strict=True)
+    users_cache_ttl_seconds: int = 300
+    cache_invalidation_token: str = Field(strict=True)

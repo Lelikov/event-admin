@@ -43,7 +43,11 @@ setup_dishka(container=container, app=app)
 app.include_router(root_router)
 
 _settings = Settings()
-app.add_middleware(JWTAuthMiddleware, settings=_settings, public_paths=frozenset({"/auth/login", "/health"}))
+app.add_middleware(
+    JWTAuthMiddleware,
+    settings=_settings,
+    public_paths=frozenset({"/auth/login", "/health", "/api/users/cache/invalidate"}),
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_settings.cors_origins,

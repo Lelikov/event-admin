@@ -22,6 +22,19 @@ pre-commit run --all-files
 
 **Configuration:** Requires a `.env` file with `POSTGRES_DSN` (PostgreSQL connection string). Optional: `DEBUG`, `LOG_LEVEL`.
 
+## Service role in the system
+
+This service is a **read-only API** on top of the database owned and written by **event-saver** (`~/PycharmProjects/event-saver`).
+
+```
+event-receiver → RabbitMQ → event-saver (writes DB) ← event-admin (reads DB, exposes API)
+                                                      ← event-users (separate users DB)
+```
+
+- **`event-saver`** — consumes RabbitMQ, writes all tables (`bookings`, `participants`, `events`, etc.)
+- **`event-users`** — separate service managing users; `participants.user_id` references its UUID PK
+- **Database migrations** live in **`event-saver/alembic/`** — never create migrations here
+
 ## Architecture
 
 Layered async FastAPI service for reading booking data from PostgreSQL.
@@ -45,3 +58,52 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - `REQUEST` scope: `AsyncSession`, `ISqlExecutor`, `IBookingsDBAdapter`, `IBookingsController`
 
 **Adding a new endpoint:** define route in `routes.py` → add method to `IBookingsController` and `IBookingsDBAdapter` protocols → implement in `BookingsController` and `BookingsDBAdapter` → add DTO in `dto/bookings.py` → add response schema in `schemas/bookings.py`.
+
+## Service Documentation
+
+- `docs/SERVICE_OVERVIEW.md` — architecture, maturity, known issues
+- `docs/API_CONTRACTS.md` — HTTP endpoints, request/response schemas
+- `docs/DATA_MODEL.md` — database tables (read-only view of event-saver's DB)
+- `docs/DEPENDENCIES.md` — external service dependencies and failure modes
+- `docs/AUDIT.md` — audit findings for this service
+
+Cross-service architecture docs (message contracts, system topology, onboarding) are in `../docs/`.
+
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
+
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
+
+### When to use graph tools FIRST
+
+- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview` + `list_communities`
+
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Key Tools
+
+| Tool | Use when |
+|------|----------|
+| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review — token-efficient |
+| `get_impact_radius` | Understanding blast radius of a change |
+| `get_affected_flows` | Finding which execution paths are impacted |
+| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `get_architecture_overview` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes` for code review.
+3. Use `get_affected_flows` to understand impact.
+4. Use `query_graph` pattern="tests_for" to check coverage.

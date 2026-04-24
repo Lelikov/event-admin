@@ -12,13 +12,6 @@ class ISqlExecutor(Protocol):
 
     async def fetch_all(self, query: str, values: dict) -> list[RowMapping]: ...
 
-    async def execute(self, query: str, values: dict) -> None: ...
-
-    async def execute_in_transaction(
-        self,
-        statements: list[tuple[str, dict]],
-    ) -> None: ...
-
 
 class ISqlExecutorFactory(Protocol):
     def __call__(self, session: AsyncSession) -> ISqlExecutor: ...

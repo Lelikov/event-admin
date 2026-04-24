@@ -4,9 +4,10 @@ from typing import Annotated
 import httpx
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from event_admin.auth import create_access_token, require_admin
+from event_admin.config import Settings
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.enums import BookingStatus
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
@@ -20,6 +21,7 @@ from event_admin.schemas.bookings import (
     BookingFutureBouncedEmailItemResponse,
     BookingListItemResponse,
 )
+from event_admin.services.users_cache import UsersCache
 
 
 logger = structlog.get_logger(__name__)
@@ -160,6 +162,31 @@ async def proxy_list_users(
         raise HTTPException(status_code=exc.response.status_code) from exc
 
 
+@users_router.post(
+    "/by-ids",
+    summary="Get users by IDs",
+    description="Proxy to event-users service. Batch fetch users by a list of UUIDs.",
+)
+async def proxy_get_users_by_ids(
+    body: dict,
+    client: FromDishka[IUsersClient],
+) -> dict:
+    ids_raw = body.get("ids", [])
+    if len(ids_raw) > 200:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Maximum 200 IDs per request",
+        )
+    try:
+        user_ids = [uuid.UUID(str(uid)) for uid in ids_raw]
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid UUID in ids") from exc
+    try:
+        return await client.get_users_by_ids(user_ids)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code) from exc
+
+
 @users_router.get(
     "/id/{user_id}",
     summary="Get user by ID",
@@ -175,5 +202,27 @@ async def proxy_get_user(
         raise HTTPException(status_code=exc.response.status_code) from exc
 
 
+cache_router = APIRouter(route_class=DishkaRoute)
+
+
+@cache_router.post(
+    "/api/users/cache/invalidate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Invalidate users cache",
+    description="Called by event-users service when users are created or updated. "
+    "Authenticated via CACHE_INVALIDATION_TOKEN bearer token.",
+)
+async def invalidate_users_cache(
+    request: Request,
+    cache: FromDishka[UsersCache],
+    settings: FromDishka[Settings],
+) -> None:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != settings.cache_invalidation_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invalidation token")
+    cache.invalidate()
+
+
 root_router.include_router(bookings_router)
 root_router.include_router(users_router)
+root_router.include_router(cache_router)

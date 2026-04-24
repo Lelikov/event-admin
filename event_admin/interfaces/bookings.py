@@ -8,26 +8,42 @@ if TYPE_CHECKING:
         BookingFutureBouncedEmailItemDto,
         BookingListFiltersDto,
         BookingListItemDto,
-        ParticipantDto,
-        ParticipantListFiltersDto,
     )
 
 
 class IBookingsDBAdapter(Protocol):
-    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]: ...
-
-    async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]: ...
+    async def list_bookings(
+        self,
+        filters: BookingListFiltersDto,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[BookingListItemDto]: ...
 
     async def get_booking_details(self, booking_uid: str) -> BookingDetailsDto | None: ...
 
-    async def list_future_email_bounced_bookings(self) -> list[BookingFutureBouncedEmailItemDto]: ...
+    async def list_future_email_bounced_bookings(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[BookingFutureBouncedEmailItemDto]: ...
 
 
 class IBookingsController(Protocol):
-    async def list_participants(self, filters: ParticipantListFiltersDto) -> list[ParticipantDto]: ...
-
-    async def list_bookings(self, filters: BookingListFiltersDto) -> list[BookingListItemDto]: ...
+    async def list_bookings(
+        self,
+        filters: BookingListFiltersDto,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[BookingListItemDto]: ...
 
     async def get_booking_details(self, booking_uid: str) -> BookingDetailsDto | None: ...
 
-    async def list_future_email_bounced_bookings(self) -> list[BookingFutureBouncedEmailItemDto]: ...
+    async def list_future_email_bounced_bookings(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[BookingFutureBouncedEmailItemDto]: ...

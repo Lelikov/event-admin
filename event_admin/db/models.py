@@ -1,10 +1,51 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from event_admin.db.base import Base
+
+
+class AdminUser(Base):
+    """Admin panel user. Roles: 'admin' (full access) | 'user' (read-only).
+
+    Migration SQL:
+        CREATE TABLE admin_users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT NOT NULL UNIQUE,
+            hashed_password TEXT NOT NULL,
+            totp_secret TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX ix_admin_users_email ON admin_users (email);
+    """
+
+    __tablename__ = "admin_users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    totp_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'user'"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        server_onupdate=text("now()"),
+    )
+
+    __table_args__ = (Index("ix_admin_users_email", "email"),)
 
 
 class BookingRecord(Base):
@@ -17,16 +58,8 @@ class BookingRecord(Base):
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     current_status: Mapped[str | None] = mapped_column(Text, nullable=True)
-    current_organizer_participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    current_client_participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    organizer_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    client_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -57,11 +90,7 @@ class BookingOrganizerHistory(Base):
         ForeignKey("bookings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    organizer_participant_ref_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
+    organizer_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_event_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("events.event_id", ondelete="SET NULL"),
@@ -92,11 +121,7 @@ class BookingMeetingLink(Base):
         ForeignKey("bookings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    participant_ref_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     meeting_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_event_id: Mapped[str | None] = mapped_column(
         Text,
@@ -119,8 +144,8 @@ class BookingMeetingLink(Base):
     __table_args__ = (
         UniqueConstraint(
             "booking_ref_id",
-            "participant_ref_id",
-            name="uq_bml_booking_ref_id_participant_ref_id",
+            "user_id",
+            name="uq_bml_booking_ref_id_user_id",
         ),
         Index(
             "ix_bml_booking_ref_id",
@@ -138,11 +163,7 @@ class BookingEmailNotification(Base):
         ForeignKey("bookings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     trigger_event: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_id: Mapped[str] = mapped_column(Text, nullable=False)
     sent_event_id: Mapped[str | None] = mapped_column(
@@ -197,11 +218,7 @@ class BookingTelegramNotification(Base):
         ForeignKey("bookings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     trigger_event: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_event_id: Mapped[str] = mapped_column(
         Text,
@@ -274,11 +291,7 @@ class BookingChatEvent(Base):
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     chat_event_type: Mapped[str] = mapped_column(Text, nullable=False)
     message_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     is_read: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     text_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -321,11 +334,7 @@ class BookingVideoEvent(Base):
     )
     video_event_type: Mapped[str] = mapped_column(Text, nullable=False)
     participant_role: Mapped[str | None] = mapped_column(Text, nullable=True)
-    participant_ref_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("participants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     payload: Mapped[dict] = mapped_column(
         JSONB,
@@ -346,29 +355,4 @@ class BookingVideoEvent(Base):
             "video_event_type",
             text("event_time DESC"),
         ),
-    )
-
-
-class Participant(Base):
-    __tablename__ = "participants"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(Text, nullable=False)
-    role: Mapped[str | None] = mapped_column(Text, nullable=True)
-    time_zone: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        server_onupdate=text("now()"),
-    )
-
-    __table_args__ = (
-        UniqueConstraint("email", name="uq_participants_email"),
-        Index("ix_participants_role", "role"),
     )
