@@ -193,6 +193,71 @@ A valid token with `role=user` will receive `403 Forbidden`.
 
 ---
 
+## Users Proxy Endpoints (require `admin` role)
+
+All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(require_admin)`. They proxy requests to the `event-users` service and return its responses verbatim. Upstream HTTP errors are forwarded as-is. Responses are cached in-process (`UsersCache`, default TTL 300s).
+
+---
+
+### GET /api/users
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Response** | `200 OK` -- passthrough from `event-users` (`{"items": [...], "total": int}`) |
+| **Error codes** | `401`, `403`, upstream errors forwarded |
+| **Reference** | `routes.py:147-162` |
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `email` | str | None | Filter by email (forwarded to event-users) |
+| `role` | str | None | Filter by role (forwarded to event-users) |
+| `limit` | int | 50 | Page size (ge=1, le=500) |
+| `offset` | int | 0 | Pagination offset (ge=0) |
+
+---
+
+### POST /api/users/by-ids
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Request body** | `{"ids": ["<uuid>", ...]}` (max 200 items) |
+| **Response** | `200 OK` -- `{"items": [...]}` passthrough from `event-users` |
+| **Error codes** | `401`, `403`, `422` (invalid UUID or >200 IDs), upstream errors forwarded |
+| **Reference** | `routes.py:165-187` |
+
+---
+
+### GET /api/users/id/{user_id}
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `user_id` (UUID) |
+| **Response** | `200 OK` -- single user object passthrough from `event-users` |
+| **Error codes** | `401`, `403`, `404` (forwarded from event-users) |
+| **Reference** | `routes.py:190-202` |
+
+---
+
+## Cache Endpoints
+
+### POST /api/users/cache/invalidate
+
+| | |
+|---|---|
+| **Auth** | `Authorization: Bearer <CACHE_INVALIDATION_TOKEN>` (separate token, **not** a user JWT) |
+| **Request body** | None |
+| **Response** | `204 No Content` |
+| **Error codes** | `401 Unauthorized` -- missing or wrong invalidation token |
+| **Notes** | Called by `event-users` to flush the in-memory `UsersCache` after create/update operations. Uses a dedicated shared secret (`CACHE_INVALIDATION_TOKEN`), not an admin JWT. |
+| **Reference** | `routes.py:208-223` |
+
+---
+
 ## Common Error Responses
 
 | Status | Body | Cause |

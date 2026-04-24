@@ -23,8 +23,9 @@ Read-only administrative API over the PostgreSQL database owned and written by `
 | Dependency | Role | Connection |
 |---|---|---|
 | PostgreSQL | Data source (same DB instance as event-saver) | `POSTGRES_DSN` -- read-only by convention (write methods removed from interface) |
+| `event-users` | User data source for `/api/users/*` proxy endpoints | `USERS_SERVICE_URL` (HTTP via httpx `AsyncClient`); authenticated with `USERS_SERVICE_API_TOKEN` |
 
-No RabbitMQ, Redis, or external HTTP dependencies.
+No RabbitMQ or Redis dependencies.
 
 ## Key Environment Variables
 
@@ -32,11 +33,15 @@ No RabbitMQ, Redis, or external HTTP dependencies.
 |---|---|---|---|---|
 | `POSTGRES_DSN` | Yes | -- | PostgreSQL async connection string (e.g. `postgresql+asyncpg://...`) | `config.py:27` |
 | `JWT_SECRET_KEY` | Yes | -- | HMAC secret for signing/verifying JWTs | `config.py:31` |
+| `USERS_SERVICE_URL` | Yes | -- | Base URL of the `event-users` service (e.g. `http://event-users:8000`) | `config.py:35` |
+| `USERS_SERVICE_API_TOKEN` | Yes | -- | Bearer token for authenticating requests to `event-users` | `config.py:36` |
+| `CACHE_INVALIDATION_TOKEN` | Yes | -- | Bearer token that `event-users` sends when calling `POST /api/users/cache/invalidate` | `config.py:38` |
 | `DEBUG` | No | `False` | When `True`, middleware bypasses JWT validation (development only) | `config.py:14`, `middleware.py:30-31` |
 | `LOG_LEVEL` | No | `INFO` | Structlog level: DEBUG, INFO, WARNING, ERROR, CRITICAL | `config.py:15` |
 | `CORS_ORIGINS` | No | `["http://localhost:5173"]` | Allowed CORS origins list | `config.py:29` |
 | `JWT_ALGORITHM` | No | `HS256` | JWT signing algorithm | `config.py:32` |
 | `JWT_EXPIRE_MINUTES` | No | `1440` (24h) | Token lifetime in minutes | `config.py:33` |
+| `USERS_CACHE_TTL_SECONDS` | No | `300` | TTL for in-memory users cache entries | `config.py:37` |
 
 ## Layer Map
 

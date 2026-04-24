@@ -20,7 +20,7 @@ ruff format .
 pre-commit run --all-files
 ```
 
-**Configuration:** Requires a `.env` file with `POSTGRES_DSN` (PostgreSQL connection string). Optional: `DEBUG`, `LOG_LEVEL`.
+**Configuration:** Requires a `.env` file. Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `USERS_CACHE_TTL_SECONDS`.
 
 ## Service role in the system
 
@@ -46,16 +46,24 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`routes.py`** — FastAPI route handlers; convert query params/path params into DTOs, call controller via DI, convert result DTO to Pydantic response schema via `from_dto()`
 - **`controllers/`** — Thin business logic layer; currently delegates directly to DB adapters
 - **`adapters/bookings_db.py`** — All SQL query logic; executes multiple raw SQL queries per request and maps `RowMapping` results to DTOs
+- **`adapters/admin_users_db.py`** — `AdminUsersDBAdapter`; fetches admin user rows by email for login
 - **`adapters/sql.py`** — `SqlExecutor` wraps `AsyncSession` with `text()` queries; used by all DB adapters
-- **`interfaces/`** — Protocol-based interfaces (`ISqlExecutor`, `IBookingsDBAdapter`, `IBookingsController`) enabling loose coupling
+- **`adapters/users_client.py`** — `UsersClient`; httpx-based proxy to `event-users` service; caches responses via `UsersCache`
+- **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`
+- **`services/password.py`** — `PasswordService`; bcrypt password verification (`IPasswordService`)
+- **`services/totp.py`** — `TOTPService`; TOTP code verification via pyotp (`ITOTPService`)
+- **`services/users_cache.py`** — `UsersCache`; in-memory TTL cache for user and list responses from `event-users`
 - **`dto/`** — Frozen dataclasses for inter-layer communication
-- **`schemas/`** — Pydantic models for HTTP responses with `from_dto()` classmethods
-- **`ioc.py`** — Dishka DI container; app-scoped (engine, session factory, settings) and request-scoped (session, executor, adapter, controller)
+- **`schemas/auth.py`** — Pydantic models for login request/response
+- **`schemas/bookings.py`** — Pydantic models for booking responses with `from_dto()` classmethods
+- **`middleware.py`** — `JWTAuthMiddleware`; validates Bearer tokens, binds request-id to structlog context
+- **`auth.py`** — `create_access_token`, `get_current_user`, `require_admin` FastAPI dependencies
+- **`ioc.py`** — Dishka DI container; app-scoped and request-scoped providers
 - **`db/models.py`** — SQLAlchemy ORM models (used for schema reference; queries are written as raw SQL in adapters)
 
 **DI scopes:**
-- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`
-- `REQUEST` scope: `AsyncSession`, `ISqlExecutor`, `IBookingsDBAdapter`, `IBookingsController`
+- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `UsersCache`, `AsyncClient` (httpx), `IUsersClient`
+- `REQUEST` scope: `AsyncSession`, `ISqlExecutor`, `IAdminUsersDBAdapter`, `IBookingsDBAdapter`, `IBookingsController`
 
 **Adding a new endpoint:** define route in `routes.py` → add method to `IBookingsController` and `IBookingsDBAdapter` protocols → implement in `BookingsController` and `BookingsDBAdapter` → add DTO in `dto/bookings.py` → add response schema in `schemas/bookings.py`.
 
