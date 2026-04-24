@@ -26,7 +26,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self._public_paths = public_paths
 
     async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Coroutine[Any, Any, Response]]
+        self,
+        request: Request,
+        call_next: Callable[[Request], Coroutine[Any, Any, Response]],
     ) -> Response:
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -37,7 +39,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             structlog.contextvars.clear_contextvars()
 
     async def _handle(
-        self, request: Request, call_next: Callable[[Request], Coroutine[Any, Any, Response]], request_id: str
+        self,
+        request: Request,
+        call_next: Callable[[Request], Coroutine[Any, Any, Response]],
+        request_id: str,
     ) -> Response:
         settings = self._settings
 
@@ -55,7 +60,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
-                {"detail": "Missing bearer token"}, status_code=401, headers={"X-Request-ID": request_id}
+                {"detail": "Missing bearer token"},
+                status_code=401,
+                headers={"X-Request-ID": request_id},
             )
 
         token = auth_header[7:]
@@ -64,7 +71,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             request.state.user_payload = {"sub": payload["sub"], "role": payload["role"]}
         except jwt.ExpiredSignatureError:
             return JSONResponse({"detail": "Token expired"}, status_code=401, headers={"X-Request-ID": request_id})
-        except (jwt.InvalidTokenError, KeyError):
+        except jwt.InvalidTokenError, KeyError:
             return JSONResponse({"detail": "Invalid token"}, status_code=401, headers={"X-Request-ID": request_id})
 
         response = await call_next(request)
