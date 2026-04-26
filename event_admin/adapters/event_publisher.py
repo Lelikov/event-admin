@@ -30,7 +30,7 @@ class EventPublisherClient:
                 "type": event_type,
                 "source": source,
                 "id": str(uuid.uuid4()),
-                "time": datetime.now(UTC).isoformat(),
+                "time": datetime.now(UTC),
                 "specversion": "1.0",
             },
             data,
