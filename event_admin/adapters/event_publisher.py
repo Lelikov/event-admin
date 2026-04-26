@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from cloudevents.conversion import to_binary
-from cloudevents.http import CloudEvent
+from cloudevents.core.v1.event import CloudEvent
+from cloudevents.v1.http.http_methods import to_binary
 from httpx import AsyncClient
 
 
