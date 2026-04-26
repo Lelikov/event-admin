@@ -30,6 +30,10 @@ class ChangeEmailRequest(BaseModel):
     new_email: EmailStr
 
 
+class ReassignClientRequest(BaseModel):
+    new_client_email: EmailStr
+
+
 logger = structlog.get_logger(__name__)
 
 # Public routes (no auth required)
@@ -144,6 +148,39 @@ async def get_booking_details(
             detail=f"Booking with uid={booking_uid!r} not found",
         )
     return BookingDetailsResponse.from_dto(booking_details_dto)
+
+
+@bookings_router.post(
+    "/{booking_uid}/reassign-client",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Reassign booking client",
+    description="Change the client assigned to a booking to an existing user with the given email.",
+)
+async def reassign_booking_client(
+    booking_uid: str,
+    body: ReassignClientRequest,
+    client: FromDishka[IUsersClient],
+    publisher: FromDishka[IEventPublisher],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> dict[str, str]:
+    new_client = await client.get_user_by_email_role(str(body.new_client_email).lower(), "client")
+    if new_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client with this email not found",
+        )
+
+    await publisher.publish(
+        source="admin",
+        event_type="booking.client_reassigned",
+        data={
+            "booking_uid": booking_uid,
+            "new_client_user_id": new_client["id"],
+            "requested_by": user.sub,
+        },
+    )
+
+    return {"status": "accepted"}
 
 
 # Users routes (proxy to event-users service)
