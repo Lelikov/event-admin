@@ -36,3 +36,6 @@ class Settings(BaseSettings):
     users_service_api_token: str = Field(strict=True)
     users_cache_ttl_seconds: int = 300
     cache_invalidation_token: str = Field(strict=True)
+
+    event_receiver_url: AnyHttpUrl = Field(strict=True)
+    event_receiver_api_key: str = Field(strict=True)
