@@ -1,12 +1,14 @@
 """HTTP client for publishing CloudEvents to event-receiver."""
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from cloudevents.core.bindings.http import to_binary
+from cloudevents.core.formats.json import JSONFormat
 from cloudevents.core.v1.event import CloudEvent
-from cloudevents.v1.http.http_methods import to_binary
 from httpx import AsyncClient
 
 
@@ -33,15 +35,17 @@ class EventPublisherClient:
                 "time": datetime.now(UTC),
                 "specversion": "1.0",
             },
-            data,
+            json.dumps(data).encode(),
         )
-        headers, body = to_binary(event)
+        message = to_binary(event, JSONFormat())
+        headers = dict(message.headers)
         headers["Authorization"] = self._api_key
+        headers["content-type"] = "application/json"
 
         response = await self._client.post(
             "/event/admin",
-            content=body,
-            headers=dict(headers),
+            content=message.body,
+            headers=headers,
         )
         response.raise_for_status()
         logger.info(
