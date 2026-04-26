@@ -81,3 +81,22 @@ class UsersClient:
         data = response.json()
         self._cache.set_list(email=email, role=role, limit=limit, offset=offset, data=data)
         return data
+
+    async def get_user_by_email_role(self, email: str, role: str) -> dict[str, Any] | None:
+        response = await self._client.get(
+            f"/api/users/roles/{role}/emails/{email}",
+            headers=self._headers,
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
+    async def get_email_changelog(self, user_id: uuid.UUID, *, limit: int, offset: int) -> dict[str, Any]:
+        response = await self._client.get(
+            f"/api/users/{user_id}/email-changelog",
+            params={"limit": limit, "offset": offset},
+            headers=self._headers,
+        )
+        response.raise_for_status()
+        return response.json()

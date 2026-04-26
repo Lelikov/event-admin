@@ -5,13 +5,15 @@ import httpx
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from pydantic import BaseModel, EmailStr
 
-from event_admin.auth import create_access_token, require_admin
+from event_admin.auth import TokenPayload, create_access_token, require_admin
 from event_admin.config import Settings
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.enums import BookingStatus
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
+from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
@@ -22,6 +24,10 @@ from event_admin.schemas.bookings import (
     BookingListItemResponse,
 )
 from event_admin.services.users_cache import UsersCache
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
 
 
 logger = structlog.get_logger(__name__)
@@ -198,6 +204,77 @@ async def proxy_get_user(
 ) -> dict:
     try:
         return await client.get_user(user_id)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code) from exc
+
+
+@users_router.post(
+    "/id/{user_id}/change-email",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request client email change",
+    description="Pre-validates uniqueness, then publishes email change event via RabbitMQ.",
+)
+async def change_user_email(
+    user_id: uuid.UUID,
+    body: ChangeEmailRequest,
+    client: FromDishka[IUsersClient],
+    publisher: FromDishka[IEventPublisher],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> dict[str, str]:
+    try:
+        current_user = await client.get_user(user_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
+        raise HTTPException(status_code=exc.response.status_code) from exc
+
+    if current_user.get("role") != "client":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only client emails can be changed",
+        )
+
+    old_email = current_user["email"]
+    if old_email == body.new_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New email is the same as current email",
+        )
+
+    existing = await client.get_user_by_email_role(body.new_email, "client")
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already in use by another client",
+        )
+
+    await publisher.publish(
+        source="admin",
+        event_type="user.email.change_requested",
+        data={
+            "user_id": str(user_id),
+            "old_email": old_email,
+            "new_email": body.new_email,
+            "requested_by": user.sub,
+        },
+    )
+
+    return {"status": "accepted"}
+
+
+@users_router.get(
+    "/id/{user_id}/email-changelog",
+    summary="Get email change history",
+    description="Proxy to event-users service. Returns email change audit log.",
+)
+async def get_email_changelog(
+    user_id: uuid.UUID,
+    client: FromDishka[IUsersClient],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    try:
+        return await client.get_email_changelog(user_id, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code) from exc
 
