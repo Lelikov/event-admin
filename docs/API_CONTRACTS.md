@@ -243,6 +243,52 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 
 ---
 
+### POST /api/users/id/{user_id}/change-email
+
+Запросить смену email клиента. Публикует CloudEvent `user.email.change_requested` через event-receiver; возвращает 202 Accepted немедленно (обработка асинхронная).
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `user_id` (UUID) |
+| **Request body** | `{"new_email": "new@example.com"}` |
+| **Response** | `202 Accepted` -- `{}` |
+| **Error codes** | `401`, `403`, `404` (пользователь не найден), `422` (невалидный email) |
+
+**Flow**: event-admin → `POST /event/admin` (event-receiver, static API key) → `events.user.email` (RabbitMQ) → event-users.
+
+---
+
+### GET /api/users/id/{user_id}/email-changelog
+
+Получить историю изменений email клиента. Проксирует запрос к `GET /api/users/{user_id}/email-changelog` в event-users.
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `user_id` (UUID) |
+| **Response** | `200 OK` -- `{"items": [...], "total": int}` passthrough от event-users |
+| **Error codes** | `401`, `403`, `404` (forwarded from event-users) |
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | int | 50 | Размер страницы (ge=1, le=500) |
+| `offset` | int | 0 | Смещение для пагинации (ge=0) |
+
+**Response item schema**:
+
+| Field | Type |
+|---|---|
+| `id` | UUID |
+| `old_email` | str |
+| `new_email` | str |
+| `changed_by` | str |
+| `changed_at` | datetime |
+
+---
+
 ## Cache Endpoints
 
 ### POST /api/users/cache/invalidate
