@@ -235,13 +235,13 @@ async def change_user_email(
         )
 
     old_email = current_user["email"]
-    if old_email == body.new_email:
+    if old_email.lower() == str(body.new_email).lower():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New email is the same as current email",
         )
 
-    existing = await client.get_user_by_email_role(body.new_email, "client")
+    existing = await client.get_user_by_email_role(str(body.new_email).lower(), "client")
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
