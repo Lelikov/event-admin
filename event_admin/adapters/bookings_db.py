@@ -163,6 +163,7 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                     ben.last_status_event_time,
                     ben.last_status_event_id,
                     ben.last_clicked_url,
+                    ben.recipient_email,
                     ben.created_at,
                     ben.updated_at,
                     ben.user_id AS participant_user_id
@@ -179,6 +180,7 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                     btn.trigger_event,
                     btn.source_event_id,
                     btn.sent_at,
+                    btn.recipient_email,
                     btn.created_at,
                     btn.user_id AS participant_user_id
                 FROM booking_telegram_notifications btn
@@ -310,6 +312,7 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 last_status_event_time=row["last_status_event_time"],
                 last_status_event_id=row["last_status_event_id"],
                 last_clicked_url=row["last_clicked_url"],
+                recipient_email=row["recipient_email"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
                 status_history=tuple(status_history_by_notification.get(row["id"], [])),
@@ -324,6 +327,7 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 trigger_event=row["trigger_event"],
                 source_event_id=row["source_event_id"],
                 sent_at=row["sent_at"],
+                recipient_email=row["recipient_email"],
                 created_at=row["created_at"],
             )
             for row in telegram_notification_rows

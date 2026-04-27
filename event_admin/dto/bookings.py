@@ -75,6 +75,7 @@ class BookingEmailNotificationItemDto:
     last_status_event_time: datetime | None
     last_status_event_id: str | None
     last_clicked_url: str | None
+    recipient_email: str | None
     created_at: datetime
     updated_at: datetime
     status_history: tuple[BookingEmailStatusHistoryItemDto, ...]
@@ -87,6 +88,7 @@ class BookingTelegramNotificationItemDto:
     trigger_event: str | None
     source_event_id: str
     sent_at: datetime
+    recipient_email: str | None
     created_at: datetime
 
 

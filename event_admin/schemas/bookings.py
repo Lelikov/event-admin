@@ -117,6 +117,7 @@ class BookingEmailStatusHistoryItemResponse(BaseModel):
 class BookingEmailNotificationItemResponse(BaseModel):
     id: int
     participant: ParticipantResponse | None
+    recipient_email: str | None
     trigger_event: str | None
     sent_at: datetime | None
     last_status: str | None
@@ -129,6 +130,7 @@ class BookingEmailNotificationItemResponse(BaseModel):
         return cls(
             id=dto.id,
             participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            recipient_email=dto.recipient_email,
             trigger_event=dto.trigger_event,
             sent_at=dto.sent_at,
             last_status=dto.last_status,
@@ -139,6 +141,7 @@ class BookingEmailNotificationItemResponse(BaseModel):
 class BookingTelegramNotificationItemResponse(BaseModel):
     id: int
     participant: ParticipantResponse | None
+    recipient_email: str | None
     trigger_event: str | None
     source_event_id: str
     sent_at: datetime
@@ -149,6 +152,7 @@ class BookingTelegramNotificationItemResponse(BaseModel):
         return cls(
             id=dto.id,
             participant=(ParticipantResponse.from_dto(dto.participant) if dto.participant else None),
+            recipient_email=dto.recipient_email,
             trigger_event=dto.trigger_event,
             source_event_id=dto.source_event_id,
             sent_at=dto.sent_at,
