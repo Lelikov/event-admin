@@ -58,6 +58,8 @@ class Settings(BaseSettings):
 
     event_receiver_url: AnyHttpUrl = Field(strict=True)
     event_receiver_api_key: str = Field(strict=True)
+    event_publish_attempts: int = Field(default=3, ge=1, le=10)
+    event_publish_timeout_seconds: float = Field(default=10.0, gt=0)
 
     @model_validator(mode="after")
     def validate_secret_strength(self) -> Settings:

@@ -5,10 +5,12 @@ from logging import getLevelNamesMapping
 import structlog
 from dishka import Provider, make_async_container
 from dishka.integrations.fastapi import FastapiProvider, setup_dishka
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from event_admin.config import Settings, get_settings
+from event_admin.errors import EventPublishError
 from event_admin.ioc import AppProvider
 from event_admin.logger import setup_logger
 from event_admin.middleware import JWTAuthMiddleware
@@ -18,6 +20,17 @@ from event_admin.routes import root_router
 logger = structlog.get_logger(__name__)
 
 PUBLIC_PATHS = frozenset({"/auth/login", "/health", "/api/users/cache/invalidate"})
+
+
+def _event_publish_error_handler(_: Request, exc: EventPublishError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={
+            "detail": "Failed to publish event to event-receiver; the action was NOT applied",
+            "event_type": exc.event_type,
+            "upstream_status": exc.upstream_status,
+        },
+    )
 
 
 def create_app(settings: Settings | None = None, provider: Provider | None = None) -> FastAPI:
@@ -42,6 +55,7 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
     app = FastAPI(title="event-admin", version="0.1.0", lifespan=lifespan)
     setup_dishka(container=container, app=app)
     app.include_router(root_router)
+    app.add_exception_handler(EventPublishError, _event_publish_error_handler)
 
     app.add_middleware(
         JWTAuthMiddleware,

@@ -123,10 +123,14 @@ class AppProvider(Provider):
 
     @provide(scope=Scope.APP)
     async def provide_event_publisher(self, settings: Settings) -> AsyncGenerator[IEventPublisher]:
-        async with AsyncClient(base_url=str(settings.event_receiver_url), timeout=10) as client:
+        async with AsyncClient(
+            base_url=str(settings.event_receiver_url),
+            timeout=settings.event_publish_timeout_seconds,
+        ) as client:
             yield EventPublisherClient(
                 http_client=client,
                 api_key=settings.event_receiver_api_key,
+                attempts=settings.event_publish_attempts,
             )
 
     @provide(scope=Scope.APP)
