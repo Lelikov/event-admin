@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from pydantic import AnyHttpUrl, Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,3 +41,9 @@ class Settings(BaseSettings):
 
     event_receiver_url: AnyHttpUrl = Field(strict=True)
     event_receiver_api_key: str = Field(strict=True)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Single construction path for Settings (DI, middleware, and token minting share it)."""
+    return Settings()

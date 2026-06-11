@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 from typing import Annotated
 
 import jwt
@@ -16,13 +15,7 @@ class TokenPayload(BaseModel):
     role: str  # "admin" | "user"
 
 
-@lru_cache(maxsize=1)
-def _get_settings() -> Settings:
-    return Settings()
-
-
-def create_access_token(email: str, role: str) -> str:
-    settings = _get_settings()
+def create_access_token(settings: Settings, *, email: str, role: str) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_expire_minutes)
     return jwt.encode(
         {"sub": email, "role": role, "exp": expire},

@@ -33,15 +33,20 @@ logger = structlog.get_logger(__name__)
 
 
 class AppProvider(Provider):
+    """DI provider; receives the single Settings instance from create_app()."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__()
+        self._settings = settings
+
     @provide(scope=Scope.APP)
     def provide_settings(self) -> Settings:
-        settings = Settings()
         logger.info(
             "Settings initialized",
-            debug=settings.debug,
-            log_level=settings.log_level,
+            debug=self._settings.debug,
+            log_level=self._settings.log_level,
         )
-        return settings
+        return self._settings
 
     @provide(scope=Scope.APP)
     async def provide_db_engine(

@@ -60,6 +60,7 @@ async def login(
     db: FromDishka[IAdminUsersDBAdapter],
     password_service: FromDishka[IPasswordService],
     totp_service: FromDishka[ITOTPService],
+    settings: FromDishka[Settings],
 ) -> LoginResponse:
     user = await db.get_by_email(body.email)
     if user is None:
@@ -74,7 +75,7 @@ async def login(
     if not totp_service.verify(body.totp_code, user["totp_secret"]):
         logger.warning("login_failed", email=body.email, reason="bad_totp")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    token = create_access_token(email=user["email"], role=user["role"])
+    token = create_access_token(settings, email=user["email"], role=user["role"])
     logger.info("login_success", email=user["email"], role=user["role"])
     return LoginResponse(access_token=token, role=user["role"])
 
