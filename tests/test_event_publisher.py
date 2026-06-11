@@ -30,8 +30,8 @@ async def test_publish_success_sends_binary_cloudevent() -> None:
     await publisher.publish(source="admin", event_type="user.email.change_requested", data={"x": 1})
 
     assert captured["url"].endswith("/event/admin")
-    # event-receiver expects the raw key (no Bearer prefix) — see ingest_admin
-    assert captured["headers"]["Authorization"] == API_KEY
+    # event-receiver's ingest_admin requires the Bearer scheme (audit-v2 follow-up #7)
+    assert captured["headers"]["Authorization"] == f"Bearer {API_KEY}"
     assert captured["headers"]["ce-type"] == "user.email.change_requested"
     assert captured["headers"]["ce-source"] == "admin"
 

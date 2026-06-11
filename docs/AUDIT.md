@@ -51,7 +51,7 @@ Every fix is covered by tests (`uv run pytest`, 75+ tests; `uv run ruff check .`
 
 ## Accepted / Deferred
 
-- **Raw API key as `Authorization` value to event-receiver (no Bearer scheme)** — kept intentionally: event-receiver's `ingest_admin` compares the raw header value with `hmac.compare_digest` (already constant-time, hardened by the receiver fixer). Switching event-admin unilaterally to `Bearer <key>` would break the contract. Key strength is enforced on both sides at startup. Revisit only as a coordinated two-side change.
+- **Raw API key as `Authorization` value to event-receiver (no Bearer scheme)** — RESOLVED (audit-v2 follow-up #7, 2026-06-11): coordinated two-side change shipped. `EventPublisherClient` sends `Authorization: Bearer <key>`; event-receiver's `ingest_admin` accepts only the Bearer scheme (token compared constant-time, malformed headers rejected). event-notifier's `DeliveryResultPublisher` (the other /event/admin sender) switched in the same change set.
 - **`event-receiver/QUEUES_DIGEST.md` missing `booking.client_reassigned` row** — lives in the event-receiver repo (out of scope for this fixer); the routing is documented in root `docs/architecture/MESSAGE_CONTRACTS.md` and in `docs/DEPENDENCIES.md` here.
 - **In-memory LoginGuard/UsersCache** — per-process; acceptable for the current single-instance deployment. Multi-replica deployments need a shared store (Redis-class) for global lockout/replay tracking — documented limitation.
 - **No server-side JWT revocation / refresh tokens** — lifetime reduced to 60 min; logout remains an honest client-side no-op. Refresh tokens deferred until the frontend needs longer sessions.

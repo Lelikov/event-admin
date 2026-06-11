@@ -52,9 +52,9 @@ class EventPublisherClient:
         )
         message = to_binary(event, JSONFormat())
         headers = dict(message.headers)
-        # event-receiver's /event/admin expects the raw key as the
-        # Authorization value (compared with hmac.compare_digest there).
-        headers["Authorization"] = self._api_key
+        # event-receiver's /event/admin requires 'Authorization: Bearer <key>'
+        # (token compared constant-time there; raw keys are rejected).
+        headers["Authorization"] = f"Bearer {self._api_key}"
         headers["content-type"] = "application/json"
 
         try:

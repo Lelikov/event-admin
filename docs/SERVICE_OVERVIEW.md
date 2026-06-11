@@ -26,7 +26,7 @@ Administrative API for the `event-admin-frontend` React UI. **Reads** are served
 |---|---|---|
 | PostgreSQL | Data source (same DB instance as event-saver) | `POSTGRES_DSN` — read-only by convention (no write methods in the interface) |
 | `event-users` | User data source for `/api/users/*` proxy endpoints | `USERS_SERVICE_URL` (httpx); authenticated with `USERS_SERVICE_API_TOKEN` |
-| `event-receiver` | CloudEvent ingress for the two mutation endpoints | `EVENT_RECEIVER_URL` (httpx); authenticated with `EVENT_RECEIVER_API_KEY` (raw `Authorization` value, compared constant-time on the receiver) |
+| `event-receiver` | CloudEvent ingress for the two mutation endpoints | `EVENT_RECEIVER_URL` (httpx); authenticated with `Authorization: Bearer {EVENT_RECEIVER_API_KEY}` (token compared constant-time on the receiver) |
 
 No direct RabbitMQ or Redis dependencies.
 

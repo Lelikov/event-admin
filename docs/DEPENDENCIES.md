@@ -6,7 +6,7 @@
 |---|---|---|---|
 | PostgreSQL (event-saver's DB) | Database | Read-only by convention | `POSTGRES_DSN` env var; `asyncpg` driver; pool_size=10, max_overflow=20 (`ioc.py:45-50`) |
 | `event-users` | HTTP service | Outbound proxy | `USERS_SERVICE_URL` env var; httpx `AsyncClient` (APP scope); `UsersClient` (`adapters/users_client.py`) proxies `/api/users/*` endpoints (lookup via `GET /api/users/by-identity`); responses cached in-process via `UsersCache` (TTL: `USERS_CACHE_TTL_SECONDS`, default 300s) |
-| `event-receiver` | HTTP service | Outbound CloudEvent publish | `EVENT_RECEIVER_URL` env var; `EventPublisherClient` posts binary-mode CloudEvents to `POST /event/admin` with `EVENT_RECEIVER_API_KEY` as the raw `Authorization` value; tenacity-retried on transport errors (`EVENT_PUBLISH_ATTEMPTS`, default 3), timeout `EVENT_PUBLISH_TIMEOUT_SECONDS` (default 10s) |
+| `event-receiver` | HTTP service | Outbound CloudEvent publish | `EVENT_RECEIVER_URL` env var; `EventPublisherClient` posts binary-mode CloudEvents to `POST /event/admin` with `Authorization: Bearer {EVENT_RECEIVER_API_KEY}`; tenacity-retried on transport errors (`EVENT_PUBLISH_ATTEMPTS`, default 3), timeout `EVENT_PUBLISH_TIMEOUT_SECONDS` (default 10s) |
 
 No direct RabbitMQ or Redis dependencies (events reach RabbitMQ via event-receiver).
 
