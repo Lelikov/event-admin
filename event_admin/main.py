@@ -57,6 +57,9 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
     app.include_router(root_router)
     app.add_exception_handler(EventPublishError, _event_publish_error_handler)
 
+    # Middleware ordering is significant: Starlette wraps the LAST-added
+    # middleware OUTERMOST. CORSMiddleware must be added last so that 401s
+    # produced by JWTAuthMiddleware still carry CORS headers. Do not reorder.
     app.add_middleware(
         JWTAuthMiddleware,
         settings=settings,
@@ -65,9 +68,12 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # Auth uses an explicit Authorization: Bearer header (not cookies),
+        # so credentialed CORS is unnecessary; methods/headers are restricted
+        # to what the SPA actually uses.
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     return app
 
