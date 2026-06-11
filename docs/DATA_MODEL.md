@@ -28,7 +28,7 @@ The following tables are queried by `event-admin` adapters:
 
 ## admin_users Table (event-admin owned)
 
-Defined in `db/models.py:11-46`. Migration SQL is currently in a docstring (no Alembic migration file exists).
+Defined in `db/models.py` (`AdminUser`). The tracked, idempotent DDL lives in **`scripts/admin_users.sql`** (apply with `psql "$POSTGRES_DSN" -f scripts/admin_users.sql`). event-admin intentionally has no Alembic — event-saver owns the shared schema; `admin_users` is the single event-admin-owned table. A test (`tests/test_admin_users_ddl.py`) keeps the script in sync with the model.
 
 ```sql
 CREATE TABLE admin_users (

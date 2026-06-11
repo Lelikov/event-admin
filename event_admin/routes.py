@@ -1,3 +1,4 @@
+import hmac
 import uuid
 from typing import Annotated
 
@@ -11,6 +12,7 @@ from event_admin.auth import TokenPayload, create_access_token, require_admin
 from event_admin.config import Settings
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.enums import BookingStatus
+from event_admin.errors import http_error
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
@@ -23,6 +25,14 @@ from event_admin.schemas.bookings import (
     BookingFutureBouncedEmailItemResponse,
     BookingListItemResponse,
 )
+from event_admin.schemas.users_proxy import (
+    ProxiedEmailChangelogResponse,
+    ProxiedUser,
+    ProxiedUsersByIdsResponse,
+    ProxiedUsersListResponse,
+    UsersByIdsRequest,
+)
+from event_admin.services.login_guard import LoginGuard
 from event_admin.services.users_cache import UsersCache
 
 
@@ -35,6 +45,14 @@ class ReassignClientRequest(BaseModel):
 
 
 logger = structlog.get_logger(__name__)
+
+
+def _users_proxy_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    """Map an upstream event-users error to a structured response, preserving the status code."""
+    upstream_status = exc.response.status_code
+    message = f"Users service returned an error (status {upstream_status})"
+    return http_error(upstream_status, "users_service_error", message)
+
 
 # Public routes (no auth required)
 root_router = APIRouter(route_class=DishkaRoute)
@@ -56,25 +74,46 @@ async def health() -> dict[str, str]:
     description="Authenticate with email, password, and TOTP code. Returns a JWT access token.",
 )
 async def login(
+    request: Request,
     body: LoginRequest,
     db: FromDishka[IAdminUsersDBAdapter],
     password_service: FromDishka[IPasswordService],
     totp_service: FromDishka[ITOTPService],
+    guard: FromDishka[LoginGuard],
+    settings: FromDishka[Settings],
 ) -> LoginResponse:
+    email = str(body.email).lower()
+    client_ip = request.client.host if request.client else "unknown"
+    guard_key = f"{client_ip}:{email}"
+
+    if guard.is_locked(guard_key):
+        logger.warning("login_blocked", email=email, client_ip=client_ip, reason="too_many_failures")
+        raise http_error(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "too_many_login_attempts",
+            "Too many failed login attempts; try again later",
+        )
+
+    def reject(reason: str) -> HTTPException:
+        guard.record_failure(guard_key)
+        logger.warning("login_failed", email=email, client_ip=client_ip, reason=reason)
+        return http_error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Invalid credentials")
+
     user = await db.get_by_email(body.email)
     if user is None:
-        logger.warning("login_failed", email=body.email, reason="user_not_found")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("user_not_found")
     if not user["is_active"]:
-        logger.warning("login_failed", email=body.email, reason="user_inactive")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("user_inactive")
     if not password_service.verify(body.password, user["hashed_password"]):
-        logger.warning("login_failed", email=body.email, reason="bad_password")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("bad_password")
+    if guard.totp_is_replay(email, body.totp_code):
+        raise reject("totp_replay")
     if not totp_service.verify(body.totp_code, user["totp_secret"]):
-        logger.warning("login_failed", email=body.email, reason="bad_totp")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    token = create_access_token(email=user["email"], role=user["role"])
+        raise reject("bad_totp")
+
+    guard.mark_totp_used(email, body.totp_code)
+    guard.reset(guard_key)
+    token = create_access_token(settings, email=user["email"], role=user["role"])
     logger.info("login_success", email=user["email"], role=user["role"])
     return LoginResponse(access_token=token, role=user["role"])
 
@@ -105,7 +144,7 @@ async def list_bookings(
     controller: FromDishka[IBookingsController] = None,
 ) -> list[BookingListItemResponse]:
     if booking_uids and len(booking_uids) > 200:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Too many booking_uids (max 200)")
+        raise http_error(status.HTTP_400_BAD_REQUEST, "too_many_booking_uids", "Too many booking_uids (max 200)")
     filters_dto = BookingListFiltersDto(
         booking_uids=tuple(booking_uids or []),
         current_statuses=tuple(current_statuses or []),
@@ -143,9 +182,10 @@ async def get_booking_details(
 ) -> BookingDetailsResponse:
     booking_details_dto = await controller.get_booking_details(booking_uid)
     if booking_details_dto is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Booking with uid={booking_uid!r} not found",
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "booking_not_found",
+            f"Booking with uid={booking_uid!r} not found",
         )
     return BookingDetailsResponse.from_dto(booking_details_dto)
 
@@ -161,13 +201,23 @@ async def reassign_booking_client(
     body: ReassignClientRequest,
     client: FromDishka[IUsersClient],
     publisher: FromDishka[IEventPublisher],
+    controller: FromDishka[IBookingsController],
     user: Annotated[TokenPayload, Depends(require_admin)],
 ) -> dict[str, str]:
+    booking = await controller.get_booking_details(booking_uid)
+    if booking is None:
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "booking_not_found",
+            f"Booking with uid={booking_uid!r} not found",
+        )
+
     new_client = await client.get_user_by_email_role(str(body.new_client_email).lower(), "client")
     if new_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Client with this email not found",
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "client_not_found",
+            "Client with this email not found",
         )
 
     await publisher.publish(
@@ -189,6 +239,7 @@ users_router = APIRouter(prefix="/api/users", route_class=DishkaRoute, dependenc
 
 @users_router.get(
     "",
+    response_model=ProxiedUsersListResponse,
     summary="List users",
     description="Proxy to event-users service. List users with optional email/role filters.",
 )
@@ -198,51 +249,46 @@ async def proxy_list_users(
     role: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> dict:
+) -> ProxiedUsersListResponse:
     try:
-        return await client.list_users(email=email, role=role, limit=limit, offset=offset)
+        data = await client.list_users(email=email, role=role, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
+    return ProxiedUsersListResponse.model_validate(data)
 
 
 @users_router.post(
     "/by-ids",
+    response_model=ProxiedUsersByIdsResponse,
     summary="Get users by IDs",
-    description="Proxy to event-users service. Batch fetch users by a list of UUIDs.",
+    description="Proxy to event-users service. Batch fetch users by a list of UUIDs (max 200).",
 )
 async def proxy_get_users_by_ids(
-    body: dict,
+    body: UsersByIdsRequest,
     client: FromDishka[IUsersClient],
-) -> dict:
-    ids_raw = body.get("ids", [])
-    if len(ids_raw) > 200:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Maximum 200 IDs per request",
-        )
+) -> ProxiedUsersByIdsResponse:
     try:
-        user_ids = [uuid.UUID(str(uid)) for uid in ids_raw]
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid UUID in ids") from exc
-    try:
-        return await client.get_users_by_ids(user_ids)
+        data = await client.get_users_by_ids(body.ids)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
+    return ProxiedUsersByIdsResponse.model_validate(data)
 
 
 @users_router.get(
     "/id/{user_id}",
+    response_model=ProxiedUser,
     summary="Get user by ID",
     description="Proxy to event-users service. Get a single user by UUID.",
 )
 async def proxy_get_user(
     user_id: uuid.UUID,
     client: FromDishka[IUsersClient],
-) -> dict:
+) -> ProxiedUser:
     try:
-        return await client.get_user(user_id)
+        data = await client.get_user(user_id)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
+    return ProxiedUser.model_validate(data)
 
 
 @users_router.post(
@@ -262,27 +308,35 @@ async def change_user_email(
         current_user = await client.get_user(user_id)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
-        raise HTTPException(status_code=exc.response.status_code) from exc
+            raise http_error(status.HTTP_404_NOT_FOUND, "user_not_found", "User not found") from exc
+        raise _users_proxy_error(exc) from exc
 
     if current_user.get("role") != "client":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only client emails can be changed",
+        raise http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "not_a_client",
+            "Only client emails can be changed",
         )
+
+    # Normalize once; the same lowercased value is used for the uniqueness
+    # check AND the published payload so downstream cannot store a
+    # case-variant duplicate of an address the pre-check reported as free.
+    new_email = str(body.new_email).lower()
 
     old_email = current_user["email"]
-    if old_email.lower() == str(body.new_email).lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New email is the same as current email",
+    if old_email.lower() == new_email:
+        raise http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "email_unchanged",
+            "New email is the same as current email",
         )
 
-    existing = await client.get_user_by_email_role(str(body.new_email).lower(), "client")
+    existing = await client.get_user_by_email_role(new_email, "client")
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already in use by another client",
+        raise http_error(
+            status.HTTP_409_CONFLICT,
+            "email_already_in_use",
+            "Email already in use by another client",
         )
 
     await publisher.publish(
@@ -291,7 +345,7 @@ async def change_user_email(
         data={
             "user_id": str(user_id),
             "old_email": old_email,
-            "new_email": body.new_email,
+            "new_email": new_email,
             "requested_by": user.sub,
         },
     )
@@ -301,6 +355,7 @@ async def change_user_email(
 
 @users_router.get(
     "/id/{user_id}/email-changelog",
+    response_model=ProxiedEmailChangelogResponse,
     summary="Get email change history",
     description="Proxy to event-users service. Returns email change audit log.",
 )
@@ -309,11 +364,12 @@ async def get_email_changelog(
     client: FromDishka[IUsersClient],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> dict:
+) -> ProxiedEmailChangelogResponse:
     try:
-        return await client.get_email_changelog(user_id, limit=limit, offset=offset)
+        data = await client.get_email_changelog(user_id, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
+    return ProxiedEmailChangelogResponse.model_validate(data)
 
 
 cache_router = APIRouter(route_class=DishkaRoute)
@@ -332,8 +388,8 @@ async def invalidate_users_cache(
     settings: FromDishka[Settings],
 ) -> None:
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != settings.cache_invalidation_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invalidation token")
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], settings.cache_invalidation_token):
+        raise http_error(status.HTTP_401_UNAUTHORIZED, "invalid_invalidation_token", "Invalid invalidation token")
     cache.invalidate()
 
 

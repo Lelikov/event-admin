@@ -1,14 +1,14 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, status
 from pydantic import BaseModel
 from starlette.requests import Request
 
 from event_admin.config import Settings
+from event_admin.errors import http_error
 
 
 class TokenPayload(BaseModel):
@@ -16,32 +16,25 @@ class TokenPayload(BaseModel):
     role: str  # "admin" | "user"
 
 
-@lru_cache(maxsize=1)
-def _get_settings() -> Settings:
-    return Settings()
-
-
-def create_access_token(email: str, role: str) -> str:
-    settings = _get_settings()
+def create_access_token(settings: Settings, *, email: str, role: str) -> str:
+    """Mint an HS256 access token; adds aud/iss claims when configured."""
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_expire_minutes)
-    return jwt.encode(
-        {"sub": email, "role": role, "exp": expire},
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+    claims: dict[str, Any] = {"sub": email, "role": role, "exp": expire}
+    if settings.jwt_audience:
+        claims["aud"] = settings.jwt_audience
+    if settings.jwt_issuer:
+        claims["iss"] = settings.jwt_issuer
+    return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def get_current_user(request: Request) -> TokenPayload:
     payload = getattr(request.state, "user_payload", None)
     if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        raise http_error(status.HTTP_401_UNAUTHORIZED, "not_authenticated", "Not authenticated")
     return TokenPayload(sub=payload["sub"], role=payload["role"])
 
 
 def require_admin(user: Annotated[TokenPayload, Depends(get_current_user)]) -> TokenPayload:
     if user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+        raise http_error(status.HTTP_403_FORBIDDEN, "admin_access_required", "Admin access required")
     return user

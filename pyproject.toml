@@ -25,8 +25,14 @@ dependencies = [
 dev = [
     "code-review-graph>=2.3.1",
     "pre-commit>=4.5.1",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.15.4",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 exclude = [
@@ -78,8 +84,13 @@ select = ["ALL"]
     "ANN002",
     "ANN003",
     "ANN401",
+    "ARG001",
+    "ARG002",
     "PLR2004",
     "S101",
+    "S105",
+    "S106",
+    "S107",
     "S311",
 ]
 

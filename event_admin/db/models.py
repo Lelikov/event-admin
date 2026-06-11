@@ -11,18 +11,10 @@ from event_admin.db.base import Base
 class AdminUser(Base):
     """Admin panel user. Roles: 'admin' (full access) | 'user' (read-only).
 
-    Migration SQL:
-        CREATE TABLE admin_users (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            email TEXT NOT NULL UNIQUE,
-            hashed_password TEXT NOT NULL,
-            totp_secret TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user',
-            is_active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX ix_admin_users_email ON admin_users (email);
+    The ONLY table owned by event-admin; its tracked DDL lives in
+    scripts/admin_users.sql (idempotent, applied via psql). All other
+    models in this module mirror event-saver's schema for reference —
+    event-saver owns those migrations (event-saver/alembic/).
     """
 
     __tablename__ = "admin_users"

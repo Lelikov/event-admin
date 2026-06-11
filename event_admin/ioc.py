@@ -24,6 +24,7 @@ from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
+from event_admin.services.login_guard import LoginGuard
 from event_admin.services.password import PasswordService
 from event_admin.services.totp import TOTPService
 from event_admin.services.users_cache import UsersCache
@@ -33,15 +34,20 @@ logger = structlog.get_logger(__name__)
 
 
 class AppProvider(Provider):
+    """DI provider; receives the single Settings instance from create_app()."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__()
+        self._settings = settings
+
     @provide(scope=Scope.APP)
     def provide_settings(self) -> Settings:
-        settings = Settings()
         logger.info(
             "Settings initialized",
-            debug=settings.debug,
-            log_level=settings.log_level,
+            debug=self._settings.debug,
+            log_level=self._settings.log_level,
         )
-        return settings
+        return self._settings
 
     @provide(scope=Scope.APP)
     async def provide_db_engine(
@@ -90,6 +96,13 @@ class AppProvider(Provider):
     def provide_totp_service(self) -> ITOTPService:
         return TOTPService()
 
+    @provide(scope=Scope.APP)
+    def provide_login_guard(self, settings: Settings) -> LoginGuard:
+        return LoginGuard(
+            max_failures=settings.login_max_failures,
+            lockout_seconds=settings.login_lockout_seconds,
+        )
+
     @provide(scope=Scope.REQUEST)
     def provide_admin_users_db_adapter(self, sql_executor: ISqlExecutor) -> IAdminUsersDBAdapter:
         return AdminUsersDBAdapter(sql_executor)
@@ -118,10 +131,14 @@ class AppProvider(Provider):
 
     @provide(scope=Scope.APP)
     async def provide_event_publisher(self, settings: Settings) -> AsyncGenerator[IEventPublisher]:
-        async with AsyncClient(base_url=str(settings.event_receiver_url), timeout=10) as client:
+        async with AsyncClient(
+            base_url=str(settings.event_receiver_url),
+            timeout=settings.event_publish_timeout_seconds,
+        ) as client:
             yield EventPublisherClient(
                 http_client=client,
                 api_key=settings.event_receiver_api_key,
+                attempts=settings.event_publish_attempts,
             )
 
     @provide(scope=Scope.APP)

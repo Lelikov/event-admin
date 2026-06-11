@@ -9,6 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uvicorn event_admin.main:app --reload
 ```
 
+**Tests:**
+```bash
+uv run pytest
+```
+
 **Lint and format:**
 ```bash
 ruff check .
@@ -20,20 +25,22 @@ ruff format .
 pre-commit run --all-files
 ```
 
-**Configuration:** Requires a `.env` file. Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `USERS_CACHE_TTL_SECONDS`.
+**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
 
 ## Service role in the system
 
-This service is a **read-only API** on top of the database owned and written by **event-saver** (`~/PycharmProjects/event-saver`).
+This service **reads** from the database owned and written by **event-saver** and **publishes mutation CloudEvents** to **event-receiver** (it never writes the DB itself).
 
 ```
 event-receiver → RabbitMQ → event-saver (writes DB) ← event-admin (reads DB, exposes API)
-                                                      ← event-users (separate users DB)
+      ▲                                               ← event-users (separate users DB)
+      └── event-admin POST /event/admin (user.email.change_requested, booking.client_reassigned)
 ```
 
 - **`event-saver`** — consumes RabbitMQ, writes all tables (`bookings`, `participants`, `events`, etc.)
 - **`event-users`** — separate service managing users; `participants.user_id` references its UUID PK
-- **Database migrations** live in **`event-saver/alembic/`** — never create migrations here
+- **Database migrations** live in **`event-saver/alembic/`** — never create migrations here. The single event-admin-owned table (`admin_users`) has tracked DDL in `scripts/admin_users.sql`
+- **Writes** go out as CloudEvents via `EventPublisherClient` → event-receiver `POST /event/admin`; publish failures map to 502 (`EventPublishError`)
 
 ## Architecture
 
@@ -48,22 +55,31 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`adapters/bookings_db.py`** — All SQL query logic; executes multiple raw SQL queries per request and maps `RowMapping` results to DTOs
 - **`adapters/admin_users_db.py`** — `AdminUsersDBAdapter`; fetches admin user rows by email for login
 - **`adapters/sql.py`** — `SqlExecutor` wraps `AsyncSession` with `text()` queries; used by all DB adapters
-- **`adapters/users_client.py`** — `UsersClient`; httpx-based proxy to `event-users` service; caches responses via `UsersCache`
-- **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`
+- **`adapters/users_client.py`** — `UsersClient`; httpx-based proxy to `event-users` service (lookup via `GET /api/users/by-identity`); caches responses via `UsersCache`
+- **`adapters/event_publisher.py`** — `EventPublisherClient`; publishes binary-mode CloudEvents to event-receiver `POST /event/admin` with tenacity retries; raises `EventPublishError` (mapped to 502)
+- **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`
 - **`services/password.py`** — `PasswordService`; bcrypt password verification (`IPasswordService`)
-- **`services/totp.py`** — `TOTPService`; TOTP code verification via pyotp (`ITOTPService`)
+- **`services/totp.py`** — `TOTPService`; TOTP verification via pyotp (`ITOTPService`); fails closed on malformed secrets
+- **`services/login_guard.py`** — `LoginGuard`; in-memory login lockout (per IP+email) and TOTP single-use tracking
 - **`services/users_cache.py`** — `UsersCache`; in-memory TTL cache for user and list responses from `event-users`
 - **`dto/`** — Frozen dataclasses for inter-layer communication
 - **`schemas/auth.py`** — Pydantic models for login request/response
 - **`schemas/bookings.py`** — Pydantic models for booking responses with `from_dto()` classmethods
-- **`middleware.py`** — `JWTAuthMiddleware`; validates Bearer tokens, binds request-id to structlog context
-- **`auth.py`** — `create_access_token`, `get_current_user`, `require_admin` FastAPI dependencies
-- **`ioc.py`** — Dishka DI container; app-scoped and request-scoped providers
-- **`db/models.py`** — SQLAlchemy ORM models (used for schema reference; queries are written as raw SQL in adapters)
+- **`schemas/users_proxy.py`** — typed allowlist models for `/api/users/*` proxy responses (unknown upstream fields are dropped)
+- **`middleware.py`** — `JWTAuthMiddleware`; validates Bearer tokens (always — no debug bypass), optional aud/iss binding, binds request-id to structlog context
+- **`auth.py`** — `create_access_token(settings, ...)`, `get_current_user`, `require_admin` FastAPI dependencies
+- **`errors.py`** — `EventPublishError` domain error + `http_error()` helper: ALL error responses use structured `detail = {"code": "<stable_snake_case>", "message": "<human text>"}` (codes are a stable contract for the frontend; see `docs/API_CONTRACTS.md` § Common Error Responses)
+- **`main.py`** — `create_app()` factory (single Settings path; CORS middleware added last = outermost, do not reorder)
+- **`ioc.py`** — Dishka DI provider (`AppProvider(settings)`); app-scoped and request-scoped providers
+- **`db/models.py`** — SQLAlchemy ORM models (schema reference only; `admin_users` DDL is tracked in `scripts/admin_users.sql`)
 
 **DI scopes:**
-- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `UsersCache`, `AsyncClient` (httpx), `IUsersClient`
+- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `LoginGuard`, `UsersCache`, `AsyncClient` (httpx), `IUsersClient`, `IEventPublisher`
 - `REQUEST` scope: `AsyncSession`, `ISqlExecutor`, `IAdminUsersDBAdapter`, `IBookingsDBAdapter`, `IBookingsController`
+
+**Concurrency rule:** never `asyncio.gather` multiple queries on the request-scoped `SqlExecutor` — the shared `AsyncSession` forbids concurrent operations (regression-tested).
+
+**Testing:** `tests/conftest.py` builds the app via `create_app(settings, provider=FakeProvider(...))` — no real DB or network. Every new endpoint/fix needs a test.
 
 **Adding a new endpoint:** define route in `routes.py` → add method to `IBookingsController` and `IBookingsDBAdapter` protocols → implement in `BookingsController` and `BookingsDBAdapter` → add DTO in `dto/bookings.py` → add response schema in `schemas/bookings.py`.
 
