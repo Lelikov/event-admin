@@ -8,9 +8,9 @@ Base URL: configured at deployment (default `http://localhost:8000`).
 
 ## Authentication
 
-JWT Bearer tokens issued by `POST /auth/login`. All non-public endpoints require a valid `Authorization: Bearer <token>` header. The `JWTAuthMiddleware` (`middleware.py:17-75`) rejects requests without a valid token (returns 401).
+JWT Bearer tokens issued by `POST /auth/login`. All non-public endpoints require a valid `Authorization: Bearer <token>` header. The `JWTAuthMiddleware` (`middleware.py`) rejects requests without a valid token (returns 401). **Authentication is enforced in every environment** — there is no DEBUG bypass (removed in audit-v2).
 
-When `DEBUG=True`, middleware bypasses JWT validation entirely (development only).
+When `JWT_AUDIENCE` / `JWT_ISSUER` are configured, minted tokens carry matching `aud`/`iss` claims and the middleware enforces them; when unset, tokens carrying those claims still verify (rollout tolerance, mirrored in `event-users`).
 
 All responses include an `X-Request-ID` header (UUID) for log correlation. Clients may send their own `X-Request-ID` header; if present, it is echoed back.
 
@@ -36,8 +36,9 @@ All responses include an `X-Request-ID` header (UUID) for log correlation. Clien
 | **Auth** | None (public) |
 | **Request body** | `LoginRequest` (JSON) |
 | **Response** | `200 OK` -- `LoginResponse` |
-| **Error codes** | `401 Unauthorized` -- invalid credentials, inactive user, bad TOTP |
-| **Reference** | `routes.py:37-53`, `schemas/auth.py:4-13` |
+| **Error codes** | `401 Unauthorized` -- invalid credentials, inactive user, bad/replayed TOTP; `429 Too Many Requests` -- lockout after `LOGIN_MAX_FAILURES` failures per client-IP+email within `LOGIN_LOCKOUT_SECONDS` |
+| **Notes** | TOTP codes are single-use: a code accepted once is rejected for the rest of its validity window. Failure counter resets on successful login. |
+| **Reference** | `routes.py`, `schemas/auth.py`, `services/login_guard.py` |
 
 **Request body schema (`LoginRequest`):**
 
@@ -193,9 +194,36 @@ A valid token with `role=user` will receive `403 Forbidden`.
 
 ---
 
+### POST /bookings/{booking_uid}/reassign-client
+
+Change the client assigned to a booking to an existing client user. Publishes CloudEvent `booking.client_reassigned` (source `admin`) via event-receiver; event-receiver routes it to `events.booking.lifecycle`, consumed by event-saver.
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `booking_uid` (str) |
+| **Request body** | `{"new_client_email": "client@example.com"}` |
+| **Response** | `202 Accepted` -- `{"status": "accepted"}` (processing is asynchronous) |
+| **Error codes** | `401`, `403`, `404` (booking not found / no client user with this email), `422` (invalid email), `502` (publish to event-receiver failed — action NOT applied) |
+| **Notes** | Booking existence is verified against the DB **before** publishing; the new client email is matched lowercased against role=`client` in event-users. |
+
+**Published payload** (`BookingClientReassignedPayload`):
+
+```json
+{
+  "booking_uid": "book-123",
+  "new_client_user_id": "<uuid>",
+  "requested_by": "<admin email from JWT sub>"
+}
+```
+
+---
+
 ## Users Proxy Endpoints (require `admin` role)
 
-All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(require_admin)`. They proxy requests to the `event-users` service and return its responses verbatim. Upstream HTTP errors are forwarded as-is. Responses are cached in-process (`UsersCache`, default TTL 300s).
+All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(require_admin)`. They proxy requests to the `event-users` service and **re-serialize responses through typed allowlist models** (`schemas/users_proxy.py`: `ProxiedUser`, `ProxiedUsersListResponse`, ...) — unknown upstream fields are dropped, never forwarded. Upstream HTTP errors are forwarded as status codes. Responses are cached in-process (`UsersCache`, default TTL 300s).
+
+**`ProxiedUser` fields:** `id`, `email`, `name`, `role`, `time_zone`, `contacts[{id, user_id, channel, contact_id, created_at, updated_at}]`, `created_at`, `updated_at`.
 
 ---
 
@@ -204,9 +232,8 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 | | |
 |---|---|
 | **Auth** | Bearer token + admin role |
-| **Response** | `200 OK` -- passthrough from `event-users` (`{"items": [...], "total": int}`) |
-| **Error codes** | `401`, `403`, upstream errors forwarded |
-| **Reference** | `routes.py:147-162` |
+| **Response** | `200 OK` -- `ProxiedUsersListResponse` (`{"items": [ProxiedUser], "total", "limit", "offset"}`) |
+| **Error codes** | `401`, `403`, upstream error statuses forwarded |
 
 **Query parameters:**
 
@@ -224,10 +251,9 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 | | |
 |---|---|
 | **Auth** | Bearer token + admin role |
-| **Request body** | `{"ids": ["<uuid>", ...]}` (max 200 items) |
-| **Response** | `200 OK` -- `{"items": [...]}` passthrough from `event-users` |
-| **Error codes** | `401`, `403`, `422` (invalid UUID or >200 IDs), upstream errors forwarded |
-| **Reference** | `routes.py:165-187` |
+| **Request body** | `UsersByIdsRequest`: `{"ids": ["<uuid>", ...]}` (typed; max 200 items) |
+| **Response** | `200 OK` -- `ProxiedUsersByIdsResponse` (`{"items": [ProxiedUser]}`) |
+| **Error codes** | `401`, `403`, `422` (non-list body, invalid UUID, or >200 IDs), upstream error statuses forwarded |
 
 ---
 
@@ -237,9 +263,8 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 |---|---|
 | **Auth** | Bearer token + admin role |
 | **Path params** | `user_id` (UUID) |
-| **Response** | `200 OK` -- single user object passthrough from `event-users` |
+| **Response** | `200 OK` -- `ProxiedUser` |
 | **Error codes** | `401`, `403`, `404` (forwarded from event-users) |
-| **Reference** | `routes.py:190-202` |
 
 ---
 
@@ -252,10 +277,12 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 | **Auth** | Bearer token + admin role |
 | **Path params** | `user_id` (UUID) |
 | **Request body** | `{"new_email": "new@example.com"}` |
-| **Response** | `202 Accepted` -- `{}` |
-| **Error codes** | `401`, `403`, `404` (пользователь не найден), `422` (невалидный email) |
+| **Response** | `202 Accepted` -- `{"status": "accepted"}` |
+| **Error codes** | `401`, `403`, `400` (не client / email совпадает с текущим), `404` (пользователь не найден), `409` (email уже занят другим клиентом), `422` (невалидный email), `502` (публикация в event-receiver не удалась — изменение НЕ применено) |
 
 **Flow**: event-admin → `POST /event/admin` (event-receiver, static API key) → `events.user.email` (RabbitMQ) → event-users.
+
+**Normalization**: `new_email` приводится к нижнему регистру один раз; то же значение используется и для проверки уникальности, и в публикуемом payload (исключает case-variant дубликаты ниже по потоку). Проверка уникальности — TOCTOU by design; event-users перепроверяет при консьюме.
 
 ---
 
@@ -267,7 +294,7 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 |---|---|
 | **Auth** | Bearer token + admin role |
 | **Path params** | `user_id` (UUID) |
-| **Response** | `200 OK` -- `{"items": [...], "total": int}` passthrough от event-users |
+| **Response** | `200 OK` -- `ProxiedEmailChangelogResponse` (`{"items": [...], "total": int}`) |
 | **Error codes** | `401`, `403`, `404` (forwarded from event-users) |
 
 **Query parameters:**
@@ -299,8 +326,7 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 | **Request body** | None |
 | **Response** | `204 No Content` |
 | **Error codes** | `401 Unauthorized` -- missing or wrong invalidation token |
-| **Notes** | Called by `event-users` to flush the in-memory `UsersCache` after create/update operations. Uses a dedicated shared secret (`CACHE_INVALIDATION_TOKEN`), not an admin JWT. |
-| **Reference** | `routes.py:208-223` |
+| **Notes** | Called by `event-users` to flush the in-memory `UsersCache` after create/update operations. Uses a dedicated shared secret (`CACHE_INVALIDATION_TOKEN`), not an admin JWT; compared constant-time via `hmac.compare_digest`. |
 
 ---
 
@@ -314,6 +340,8 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 | 401 | `{"detail": "Invalid credentials"}` | Login: wrong email/password/TOTP or inactive user |
 | 403 | `{"detail": "Admin access required"}` | Valid token but `role != "admin"` |
 | 404 | `{"detail": "Booking with uid='...' not found"}` | No booking row matches path param |
+| 429 | `{"detail": "Too many failed login attempts; try again later"}` | Login lockout (per client-IP+email) |
+| 502 | `{"detail": "Failed to publish event to event-receiver; the action was NOT applied", "event_type": "...", "upstream_status": ...}` | event-receiver down/slow/rejecting during change-email or reassign-client |
 
 ---
 
