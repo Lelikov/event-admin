@@ -14,7 +14,7 @@ class TOTPService(ITOTPService):
         """Verify a TOTP code; a malformed/empty secret fails closed (no 500)."""
         try:
             return pyotp.TOTP(secret).verify(code)
-        except (binascii.Error, ValueError, TypeError, IndexError):
+        except binascii.Error, ValueError, TypeError, IndexError:
             logger.exception("totp_secret_malformed")
             return False
 
