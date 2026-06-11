@@ -1,4 +1,3 @@
-import asyncio
 from typing import TYPE_CHECKING
 
 from event_admin.dto.bookings import (
@@ -112,17 +111,12 @@ class BookingsDBAdapter(IBookingsDBAdapter):
 
         booking_ref_id = booking_row["id"]
 
-        (
-            organizer_history_rows,
-            meeting_link_rows,
-            email_notification_rows,
-            telegram_notification_rows,
-            chat_event_rows,
-            video_event_rows,
-            lifecycle_event_rows,
-        ) = await asyncio.gather(
-            self.sql_executor.fetch_all(
-                """
+        # The child-table queries MUST run sequentially: they share one
+        # request-scoped AsyncSession, and SQLAlchemy's AsyncSession is not
+        # safe for concurrent use (asyncio.gather here raises
+        # InvalidRequestError / asyncpg InterfaceError on every call).
+        organizer_history_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     boh.id,
                     boh.source_event_id,
@@ -133,10 +127,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE boh.booking_ref_id = :booking_ref_id
                 ORDER BY boh.effective_from DESC, boh.id DESC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        meeting_link_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     bml.id,
                     bml.meeting_url,
@@ -149,10 +143,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE bml.booking_ref_id = :booking_ref_id
                 ORDER BY bml.occurred_at DESC, bml.id DESC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        email_notification_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     ben.id,
                     ben.trigger_event,
@@ -171,10 +165,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE ben.booking_ref_id = :booking_ref_id
                 ORDER BY ben.created_at DESC, ben.id DESC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        telegram_notification_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     btn.id,
                     btn.trigger_event,
@@ -187,10 +181,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE btn.booking_ref_id = :booking_ref_id
                 ORDER BY btn.sent_at DESC, btn.id DESC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        chat_event_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     bce.id,
                     bce.raw_event_id,
@@ -206,10 +200,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE bce.booking_ref_id = :booking_ref_id AND bce.chat_event_type != 'message.read'
                 ORDER BY bce.occurred_at ASC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        video_event_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     bve.id,
                     bve.raw_event_id,
@@ -222,10 +216,10 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE bve.booking_ref_id = :booking_ref_id
                 ORDER BY bve.event_time DESC NULLS LAST, bve.id DESC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
-            self.sql_executor.fetch_all(
-                """
+            {"booking_ref_id": booking_ref_id},
+        )
+        lifecycle_event_rows = await self.sql_executor.fetch_all(
+            """
                 SELECT
                     ble.id,
                     ble.raw_event_id,
@@ -239,8 +233,7 @@ class BookingsDBAdapter(IBookingsDBAdapter):
                 WHERE ble.booking_ref_id = :booking_ref_id
                 ORDER BY ble.occurred_at ASC, ble.id ASC
                 """,
-                {"booking_ref_id": booking_ref_id},
-            ),
+            {"booking_ref_id": booking_ref_id},
         )
 
         notification_ids = [row["id"] for row in email_notification_rows]
