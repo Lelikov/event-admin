@@ -38,6 +38,7 @@ async def test_change_email_unknown_user_404(client, admin_headers, fakes) -> No
         headers=admin_headers,
     )
     assert response.status_code == 404
+    assert response.json()["detail"] == {"code": "user_not_found", "message": "User not found"}
     assert fakes.publisher.published == []
 
 
@@ -51,6 +52,7 @@ async def test_change_email_non_client_role_400(client, admin_headers, fakes) ->
         headers=admin_headers,
     )
     assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "not_a_client"
 
 
 async def test_change_email_same_email_case_insensitive_400(client, admin_headers, fakes, client_user) -> None:
@@ -60,6 +62,7 @@ async def test_change_email_same_email_case_insensitive_400(client, admin_header
         headers=admin_headers,
     )
     assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "email_unchanged"
     assert fakes.publisher.published == []
 
 
@@ -72,4 +75,5 @@ async def test_change_email_taken_email_409_checked_lowercased(client, admin_hea
         headers=admin_headers,
     )
     assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "email_already_in_use"
     assert fakes.publisher.published == []

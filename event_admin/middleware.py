@@ -13,6 +13,11 @@ from starlette.types import ASGIApp
 from event_admin.config import Settings
 
 
+def _error_body(code: str, message: str) -> dict[str, dict[str, str]]:
+    """Structured error detail mirroring errors.http_error (middleware cannot raise HTTPException)."""
+    return {"detail": {"code": code, "message": message}}
+
+
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     """Validates JWT for every request except those in *public_paths*.
 
@@ -74,7 +79,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
-                {"detail": "Missing bearer token"},
+                _error_body("missing_bearer_token", "Missing bearer token"),
                 status_code=401,
                 headers={"X-Request-ID": request_id},
             )
@@ -84,9 +89,17 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             payload = self._decode_token(token)
             request.state.user_payload = {"sub": payload["sub"], "role": payload["role"]}
         except jwt.ExpiredSignatureError:
-            return JSONResponse({"detail": "Token expired"}, status_code=401, headers={"X-Request-ID": request_id})
+            return JSONResponse(
+                _error_body("token_expired", "Token expired"),
+                status_code=401,
+                headers={"X-Request-ID": request_id},
+            )
         except jwt.InvalidTokenError, KeyError:
-            return JSONResponse({"detail": "Invalid token"}, status_code=401, headers={"X-Request-ID": request_id})
+            return JSONResponse(
+                _error_body("invalid_token", "Invalid token"),
+                status_code=401,
+                headers={"X-Request-ID": request_id},
+            )
 
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id

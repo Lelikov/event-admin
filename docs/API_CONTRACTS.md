@@ -332,16 +332,29 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 
 ## Common Error Responses
 
-| Status | Body | Cause |
-|---|---|---|
-| 401 | `{"detail": "Missing bearer token"}` | No `Authorization` header or malformed |
-| 401 | `{"detail": "Token expired"}` | JWT `exp` claim in the past |
-| 401 | `{"detail": "Invalid token"}` | Signature mismatch, malformed JWT |
-| 401 | `{"detail": "Invalid credentials"}` | Login: wrong email/password/TOTP or inactive user |
-| 403 | `{"detail": "Admin access required"}` | Valid token but `role != "admin"` |
-| 404 | `{"detail": "Booking with uid='...' not found"}` | No booking row matches path param |
-| 429 | `{"detail": "Too many failed login attempts; try again later"}` | Login lockout (per client-IP+email) |
-| 502 | `{"detail": "Failed to publish event to event-receiver; the action was NOT applied", "event_type": "...", "upstream_status": ...}` | event-receiver down/slow/rejecting during change-email or reassign-client |
+All error responses carry a **machine-readable detail object**:
+`{"detail": {"code": "<stable_snake_case>", "message": "<human text>"}}`.
+Clients MUST key error handling/translation on `code` (the `message` text may change; `code` is a stable contract). Built via `errors.http_error()`.
+
+| Status | `detail.code` | `detail.message` | Cause |
+|---|---|---|---|
+| 401 | `missing_bearer_token` | Missing bearer token | No `Authorization` header or malformed |
+| 401 | `token_expired` | Token expired | JWT `exp` claim in the past |
+| 401 | `invalid_token` | Invalid token | Signature mismatch, malformed JWT |
+| 401 | `not_authenticated` | Not authenticated | Auth dependency reached without middleware payload |
+| 401 | `invalid_credentials` | Invalid credentials | Login: wrong email/password/TOTP or inactive user |
+| 401 | `invalid_invalidation_token` | Invalid invalidation token | Wrong `CACHE_INVALIDATION_TOKEN` on cache invalidate |
+| 403 | `admin_access_required` | Admin access required | Valid token but `role != "admin"` |
+| 400 | `too_many_booking_uids` | Too many booking_uids (max 200) | `booking_uids` filter over the limit |
+| 400 | `not_a_client` | Only client emails can be changed | change-email on a non-client user |
+| 400 | `email_unchanged` | New email is the same as current email | change-email no-op |
+| 404 | `booking_not_found` | Booking with uid='...' not found | No booking row matches path param |
+| 404 | `client_not_found` | Client with this email not found | reassign-client target email unknown |
+| 404 | `user_not_found` | User not found | change-email target user unknown upstream |
+| 409 | `email_already_in_use` | Email already in use by another client | change-email uniqueness pre-check |
+| 4xx/5xx | `users_service_error` | Users service returned an error (status N) | `/api/users/*` proxy: upstream event-users error, status forwarded |
+| 429 | `too_many_login_attempts` | Too many failed login attempts; try again later | Login lockout (per client-IP+email) |
+| 502 | `event_publish_failed` | Failed to publish event to event-receiver; the action was NOT applied | event-receiver down/slow/rejecting during change-email or reassign-client. Body also carries top-level `event_type` and `upstream_status` |
 
 ---
 

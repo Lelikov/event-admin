@@ -16,7 +16,9 @@ async def test_reassign_unknown_booking_returns_404_and_publishes_nothing(client
     )
 
     assert response.status_code == 404
-    assert "ghost-uid" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["code"] == "booking_not_found"
+    assert "ghost-uid" in detail["message"]
     assert fakes.publisher.published == []
 
 
@@ -30,6 +32,7 @@ async def test_reassign_unknown_client_returns_404(client, admin_headers, fakes)
     )
 
     assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "client_not_found"
     assert fakes.publisher.published == []
 
 

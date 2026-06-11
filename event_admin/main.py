@@ -26,7 +26,10 @@ def _event_publish_error_handler(_: Request, exc: EventPublishError) -> JSONResp
     return JSONResponse(
         status_code=status.HTTP_502_BAD_GATEWAY,
         content={
-            "detail": "Failed to publish event to event-receiver; the action was NOT applied",
+            "detail": {
+                "code": "event_publish_failed",
+                "message": "Failed to publish event to event-receiver; the action was NOT applied",
+            },
             "event_type": exc.event_type,
             "upstream_status": exc.upstream_status,
         },

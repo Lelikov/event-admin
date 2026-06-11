@@ -12,6 +12,7 @@ from event_admin.auth import TokenPayload, create_access_token, require_admin
 from event_admin.config import Settings
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.enums import BookingStatus
+from event_admin.errors import http_error
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
@@ -44,6 +45,14 @@ class ReassignClientRequest(BaseModel):
 
 
 logger = structlog.get_logger(__name__)
+
+
+def _users_proxy_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    """Map an upstream event-users error to a structured response, preserving the status code."""
+    upstream_status = exc.response.status_code
+    message = f"Users service returned an error (status {upstream_status})"
+    return http_error(upstream_status, "users_service_error", message)
+
 
 # Public routes (no auth required)
 root_router = APIRouter(route_class=DishkaRoute)
@@ -79,15 +88,16 @@ async def login(
 
     if guard.is_locked(guard_key):
         logger.warning("login_blocked", email=email, client_ip=client_ip, reason="too_many_failures")
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed login attempts; try again later",
+        raise http_error(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "too_many_login_attempts",
+            "Too many failed login attempts; try again later",
         )
 
     def reject(reason: str) -> HTTPException:
         guard.record_failure(guard_key)
         logger.warning("login_failed", email=email, client_ip=client_ip, reason=reason)
-        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        return http_error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Invalid credentials")
 
     user = await db.get_by_email(body.email)
     if user is None:
@@ -134,7 +144,7 @@ async def list_bookings(
     controller: FromDishka[IBookingsController] = None,
 ) -> list[BookingListItemResponse]:
     if booking_uids and len(booking_uids) > 200:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Too many booking_uids (max 200)")
+        raise http_error(status.HTTP_400_BAD_REQUEST, "too_many_booking_uids", "Too many booking_uids (max 200)")
     filters_dto = BookingListFiltersDto(
         booking_uids=tuple(booking_uids or []),
         current_statuses=tuple(current_statuses or []),
@@ -172,9 +182,10 @@ async def get_booking_details(
 ) -> BookingDetailsResponse:
     booking_details_dto = await controller.get_booking_details(booking_uid)
     if booking_details_dto is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Booking with uid={booking_uid!r} not found",
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "booking_not_found",
+            f"Booking with uid={booking_uid!r} not found",
         )
     return BookingDetailsResponse.from_dto(booking_details_dto)
 
@@ -195,16 +206,18 @@ async def reassign_booking_client(
 ) -> dict[str, str]:
     booking = await controller.get_booking_details(booking_uid)
     if booking is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Booking with uid={booking_uid!r} not found",
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "booking_not_found",
+            f"Booking with uid={booking_uid!r} not found",
         )
 
     new_client = await client.get_user_by_email_role(str(body.new_client_email).lower(), "client")
     if new_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Client with this email not found",
+        raise http_error(
+            status.HTTP_404_NOT_FOUND,
+            "client_not_found",
+            "Client with this email not found",
         )
 
     await publisher.publish(
@@ -240,7 +253,7 @@ async def proxy_list_users(
     try:
         data = await client.list_users(email=email, role=role, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
     return ProxiedUsersListResponse.model_validate(data)
 
 
@@ -257,7 +270,7 @@ async def proxy_get_users_by_ids(
     try:
         data = await client.get_users_by_ids(body.ids)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
     return ProxiedUsersByIdsResponse.model_validate(data)
 
 
@@ -274,7 +287,7 @@ async def proxy_get_user(
     try:
         data = await client.get_user(user_id)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
     return ProxiedUser.model_validate(data)
 
 
@@ -295,13 +308,14 @@ async def change_user_email(
         current_user = await client.get_user(user_id)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
-        raise HTTPException(status_code=exc.response.status_code) from exc
+            raise http_error(status.HTTP_404_NOT_FOUND, "user_not_found", "User not found") from exc
+        raise _users_proxy_error(exc) from exc
 
     if current_user.get("role") != "client":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only client emails can be changed",
+        raise http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "not_a_client",
+            "Only client emails can be changed",
         )
 
     # Normalize once; the same lowercased value is used for the uniqueness
@@ -311,16 +325,18 @@ async def change_user_email(
 
     old_email = current_user["email"]
     if old_email.lower() == new_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New email is the same as current email",
+        raise http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "email_unchanged",
+            "New email is the same as current email",
         )
 
     existing = await client.get_user_by_email_role(new_email, "client")
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already in use by another client",
+        raise http_error(
+            status.HTTP_409_CONFLICT,
+            "email_already_in_use",
+            "Email already in use by another client",
         )
 
     await publisher.publish(
@@ -352,7 +368,7 @@ async def get_email_changelog(
     try:
         data = await client.get_email_changelog(user_id, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code) from exc
+        raise _users_proxy_error(exc) from exc
     return ProxiedEmailChangelogResponse.model_validate(data)
 
 
@@ -373,7 +389,7 @@ async def invalidate_users_cache(
 ) -> None:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], settings.cache_invalidation_token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invalidation token")
+        raise http_error(status.HTTP_401_UNAUTHORIZED, "invalid_invalidation_token", "Invalid invalidation token")
     cache.invalidate()
 
 

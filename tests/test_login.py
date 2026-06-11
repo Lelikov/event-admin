@@ -28,6 +28,7 @@ async def test_login_success_returns_token(client, admin_user) -> None:
 async def test_login_unknown_user_401(client) -> None:
     response = await client.post("/auth/login", json=LOGIN)
     assert response.status_code == 401
+    assert response.json()["detail"] == {"code": "invalid_credentials", "message": "Invalid credentials"}
 
 
 async def test_login_inactive_user_401(client, fakes) -> None:
@@ -54,6 +55,7 @@ async def test_login_lockout_after_repeated_failures(client, admin_user) -> None
     # Even correct credentials are now rejected with 429 for this IP+email
     response = await client.post("/auth/login", json=LOGIN)
     assert response.status_code == 429
+    assert response.json()["detail"]["code"] == "too_many_login_attempts"
 
 
 async def test_totp_code_cannot_be_replayed(client, admin_user) -> None:

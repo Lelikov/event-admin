@@ -99,4 +99,5 @@ async def test_change_email_returns_502_when_publish_fails(client, admin_headers
     assert response.status_code == 502
     body = response.json()
     assert body["upstream_status"] == 503
-    assert "NOT applied" in body["detail"]
+    assert body["detail"]["code"] == "event_publish_failed"
+    assert "NOT applied" in body["detail"]["message"]

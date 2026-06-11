@@ -46,6 +46,7 @@ Every fix is covered by tests (`uv run pytest`, 75+ tests; `uv run ruff check .`
 16. **`change_user_email` published mixed-case `new_email` while validating lowercased** → normalized once, validated and published lowercased.
 17. **CORS `allow_credentials=True` + wildcard methods/headers** (security cross-cut) → credentials dropped (auth is a Bearer header, not cookies); methods/headers restricted to GET/POST/OPTIONS and Authorization/Content-Type/X-Request-ID.
 18. **Deprecated path-segment lookup** → `UsersClient.get_user_by_email_role` migrated to `GET /api/users/by-identity?email=&role=` (per event-users deprecation).
+19. **Prose-only error `detail` strings (frontend matched exact English text)** → RESOLVED (audit-v2 follow-up #6, 2026-06-11): every error path returns `detail = {"code": "<stable_snake_case>", "message": "<human text>"}` via `errors.http_error()` (routes, auth deps, JWT middleware, 502 publish handler). HTTP status codes unchanged. Catalog in `docs/API_CONTRACTS.md` § Common Error Responses; event-admin-frontend now translates by `code`.
 
 ---
 

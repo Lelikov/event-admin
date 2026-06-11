@@ -102,3 +102,13 @@ async def test_users_client_uses_by_identity_endpoint() -> None:
     assert result is None
     assert captured["path"] == "/api/users/by-identity"
     assert captured["params"] == {"email": "a+b@example.com", "role": "client"}
+
+
+async def test_proxy_upstream_error_returns_structured_code(client, admin_headers, fakes) -> None:
+    """Upstream event-users errors keep their status code and carry a stable error code."""
+    response = await client.get(f"/api/users/id/{uuid.uuid4()}", headers=admin_headers)
+
+    assert response.status_code == 404
+    detail = response.json()["detail"]
+    assert detail["code"] == "users_service_error"
+    assert "404" in detail["message"]

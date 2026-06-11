@@ -13,13 +13,13 @@ from tests.conftest import FakeProvider, make_settings
 async def test_request_without_token_is_rejected(client) -> None:
     response = await client.get("/bookings")
     assert response.status_code == 401
-    assert response.json() == {"detail": "Missing bearer token"}
+    assert response.json() == {"detail": {"code": "missing_bearer_token", "message": "Missing bearer token"}}
 
 
 async def test_request_with_invalid_token_is_rejected(client) -> None:
     response = await client.get("/bookings", headers={"Authorization": "Bearer not-a-jwt"})
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid token"}
+    assert response.json() == {"detail": {"code": "invalid_token", "message": "Invalid token"}}
 
 
 async def test_request_with_wrong_signature_is_rejected(client, settings) -> None:
@@ -38,7 +38,7 @@ async def test_expired_token_is_rejected(client, settings) -> None:
     )
     response = await client.get("/bookings", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
-    assert response.json() == {"detail": "Token expired"}
+    assert response.json() == {"detail": {"code": "token_expired", "message": "Token expired"}}
 
 
 async def test_valid_token_passes(client, admin_headers) -> None:
