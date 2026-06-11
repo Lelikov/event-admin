@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     event_publish_attempts: int = Field(default=3, ge=1, le=10)
     event_publish_timeout_seconds: float = Field(default=10.0, gt=0)
 
+    login_max_failures: int = Field(default=5, ge=1)
+    login_lockout_seconds: int = Field(default=300, ge=1)
+
     @model_validator(mode="after")
     def validate_secret_strength(self) -> Settings:
         """Refuse to start with weak or placeholder secrets outside DEBUG.

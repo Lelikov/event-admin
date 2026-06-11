@@ -23,6 +23,7 @@ from event_admin.schemas.bookings import (
     BookingFutureBouncedEmailItemResponse,
     BookingListItemResponse,
 )
+from event_admin.services.login_guard import LoginGuard
 from event_admin.services.users_cache import UsersCache
 
 
@@ -56,25 +57,44 @@ async def health() -> dict[str, str]:
     description="Authenticate with email, password, and TOTP code. Returns a JWT access token.",
 )
 async def login(
+    request: Request,
     body: LoginRequest,
     db: FromDishka[IAdminUsersDBAdapter],
     password_service: FromDishka[IPasswordService],
     totp_service: FromDishka[ITOTPService],
+    guard: FromDishka[LoginGuard],
     settings: FromDishka[Settings],
 ) -> LoginResponse:
+    email = str(body.email).lower()
+    client_ip = request.client.host if request.client else "unknown"
+    guard_key = f"{client_ip}:{email}"
+
+    if guard.is_locked(guard_key):
+        logger.warning("login_blocked", email=email, client_ip=client_ip, reason="too_many_failures")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts; try again later",
+        )
+
+    def reject(reason: str) -> HTTPException:
+        guard.record_failure(guard_key)
+        logger.warning("login_failed", email=email, client_ip=client_ip, reason=reason)
+        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     user = await db.get_by_email(body.email)
     if user is None:
-        logger.warning("login_failed", email=body.email, reason="user_not_found")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("user_not_found")
     if not user["is_active"]:
-        logger.warning("login_failed", email=body.email, reason="user_inactive")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("user_inactive")
     if not password_service.verify(body.password, user["hashed_password"]):
-        logger.warning("login_failed", email=body.email, reason="bad_password")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("bad_password")
+    if guard.totp_is_replay(email, body.totp_code):
+        raise reject("totp_replay")
     if not totp_service.verify(body.totp_code, user["totp_secret"]):
-        logger.warning("login_failed", email=body.email, reason="bad_totp")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise reject("bad_totp")
+
+    guard.mark_totp_used(email, body.totp_code)
+    guard.reset(guard_key)
     token = create_access_token(settings, email=user["email"], role=user["role"])
     logger.info("login_success", email=user["email"], role=user["role"])
     return LoginResponse(access_token=token, role=user["role"])

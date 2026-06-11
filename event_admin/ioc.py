@@ -24,6 +24,7 @@ from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
+from event_admin.services.login_guard import LoginGuard
 from event_admin.services.password import PasswordService
 from event_admin.services.totp import TOTPService
 from event_admin.services.users_cache import UsersCache
@@ -94,6 +95,13 @@ class AppProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_totp_service(self) -> ITOTPService:
         return TOTPService()
+
+    @provide(scope=Scope.APP)
+    def provide_login_guard(self, settings: Settings) -> LoginGuard:
+        return LoginGuard(
+            max_failures=settings.login_max_failures,
+            lockout_seconds=settings.login_lockout_seconds,
+        )
 
     @provide(scope=Scope.REQUEST)
     def provide_admin_users_db_adapter(self, sql_executor: ISqlExecutor) -> IAdminUsersDBAdapter:

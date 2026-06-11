@@ -25,6 +25,7 @@ from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
 from event_admin.main import create_app
+from event_admin.services.login_guard import LoginGuard
 from event_admin.services.users_cache import UsersCache
 
 
@@ -192,6 +193,7 @@ class Fakes:
         self.users_client = FakeUsersClient()
         self.publisher = FakeEventPublisher()
         self.users_cache = UsersCache(ttl_seconds=300)
+        self.login_guard = LoginGuard(max_failures=5, lockout_seconds=300)
 
 
 class FakeProvider(Provider):
@@ -233,6 +235,10 @@ class FakeProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_users_cache(self) -> UsersCache:
         return self._fakes.users_cache
+
+    @provide(scope=Scope.APP)
+    def provide_login_guard(self) -> LoginGuard:
+        return self._fakes.login_guard
 
 
 @pytest.fixture
