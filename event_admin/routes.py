@@ -24,6 +24,13 @@ from event_admin.schemas.bookings import (
     BookingFutureBouncedEmailItemResponse,
     BookingListItemResponse,
 )
+from event_admin.schemas.users_proxy import (
+    ProxiedEmailChangelogResponse,
+    ProxiedUser,
+    ProxiedUsersByIdsResponse,
+    ProxiedUsersListResponse,
+    UsersByIdsRequest,
+)
 from event_admin.services.login_guard import LoginGuard
 from event_admin.services.users_cache import UsersCache
 
@@ -219,6 +226,7 @@ users_router = APIRouter(prefix="/api/users", route_class=DishkaRoute, dependenc
 
 @users_router.get(
     "",
+    response_model=ProxiedUsersListResponse,
     summary="List users",
     description="Proxy to event-users service. List users with optional email/role filters.",
 )
@@ -228,51 +236,46 @@ async def proxy_list_users(
     role: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> dict:
+) -> ProxiedUsersListResponse:
     try:
-        return await client.list_users(email=email, role=role, limit=limit, offset=offset)
+        data = await client.list_users(email=email, role=role, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code) from exc
+    return ProxiedUsersListResponse.model_validate(data)
 
 
 @users_router.post(
     "/by-ids",
+    response_model=ProxiedUsersByIdsResponse,
     summary="Get users by IDs",
-    description="Proxy to event-users service. Batch fetch users by a list of UUIDs.",
+    description="Proxy to event-users service. Batch fetch users by a list of UUIDs (max 200).",
 )
 async def proxy_get_users_by_ids(
-    body: dict,
+    body: UsersByIdsRequest,
     client: FromDishka[IUsersClient],
-) -> dict:
-    ids_raw = body.get("ids", [])
-    if len(ids_raw) > 200:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Maximum 200 IDs per request",
-        )
+) -> ProxiedUsersByIdsResponse:
     try:
-        user_ids = [uuid.UUID(str(uid)) for uid in ids_raw]
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid UUID in ids") from exc
-    try:
-        return await client.get_users_by_ids(user_ids)
+        data = await client.get_users_by_ids(body.ids)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code) from exc
+    return ProxiedUsersByIdsResponse.model_validate(data)
 
 
 @users_router.get(
     "/id/{user_id}",
+    response_model=ProxiedUser,
     summary="Get user by ID",
     description="Proxy to event-users service. Get a single user by UUID.",
 )
 async def proxy_get_user(
     user_id: uuid.UUID,
     client: FromDishka[IUsersClient],
-) -> dict:
+) -> ProxiedUser:
     try:
-        return await client.get_user(user_id)
+        data = await client.get_user(user_id)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code) from exc
+    return ProxiedUser.model_validate(data)
 
 
 @users_router.post(
@@ -331,6 +334,7 @@ async def change_user_email(
 
 @users_router.get(
     "/id/{user_id}/email-changelog",
+    response_model=ProxiedEmailChangelogResponse,
     summary="Get email change history",
     description="Proxy to event-users service. Returns email change audit log.",
 )
@@ -339,11 +343,12 @@ async def get_email_changelog(
     client: FromDishka[IUsersClient],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> dict:
+) -> ProxiedEmailChangelogResponse:
     try:
-        return await client.get_email_changelog(user_id, limit=limit, offset=offset)
+        data = await client.get_email_changelog(user_id, limit=limit, offset=offset)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code) from exc
+    return ProxiedEmailChangelogResponse.model_validate(data)
 
 
 cache_router = APIRouter(route_class=DishkaRoute)

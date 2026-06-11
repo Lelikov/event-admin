@@ -83,8 +83,12 @@ class UsersClient:
         return data
 
     async def get_user_by_email_role(self, email: str, role: str) -> dict[str, Any] | None:
+        # /by-identity (query params) replaces the deprecated path-segment
+        # endpoint: emails contain '+', '.' and '%', which decode
+        # inconsistently across proxies as path segments.
         response = await self._client.get(
-            f"/api/users/roles/{role}/emails/{email}",
+            "/api/users/by-identity",
+            params={"email": email, "role": role},
             headers=self._headers,
         )
         if response.status_code == 404:
