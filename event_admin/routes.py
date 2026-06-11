@@ -1,3 +1,4 @@
+import hmac
 import uuid
 from typing import Annotated
 
@@ -361,7 +362,7 @@ async def invalidate_users_cache(
     settings: FromDishka[Settings],
 ) -> None:
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != settings.cache_invalidation_token:
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], settings.cache_invalidation_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invalidation token")
     cache.invalidate()
 
