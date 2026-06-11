@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -16,12 +16,14 @@ class TokenPayload(BaseModel):
 
 
 def create_access_token(settings: Settings, *, email: str, role: str) -> str:
+    """Mint an HS256 access token; adds aud/iss claims when configured."""
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_expire_minutes)
-    return jwt.encode(
-        {"sub": email, "role": role, "exp": expire},
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+    claims: dict[str, Any] = {"sub": email, "role": role, "exp": expire}
+    if settings.jwt_audience:
+        claims["aud"] = settings.jwt_audience
+    if settings.jwt_issuer:
+        claims["iss"] = settings.jwt_issuer
+    return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def get_current_user(request: Request) -> TokenPayload:

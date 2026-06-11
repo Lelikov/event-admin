@@ -49,7 +49,11 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = Field(...)
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24  # 24 hours
+    jwt_expire_minutes: int = 60
+    # Optional aud/iss binding shared with event-users. When unset, tokens are
+    # minted without these claims and verification skips them (rollout tolerance).
+    jwt_audience: str | None = None
+    jwt_issuer: str | None = None
 
     users_service_url: AnyHttpUrl = Field(strict=True)
     users_service_api_token: str = Field(strict=True)

@@ -41,14 +41,31 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         finally:
             structlog.contextvars.clear_contextvars()
 
+    def _decode_token(self, token: str) -> dict[str, Any]:
+        """Decode and verify the JWT, honoring optional aud/iss binding.
+
+        When jwt_audience is unset, tokens carrying an aud claim must still
+        pass (rollout tolerance, mirrored in event-users).
+        """
+        settings = self._settings
+        kwargs: dict[str, Any] = {"options": {"verify_aud": bool(settings.jwt_audience)}}
+        if settings.jwt_audience:
+            kwargs["audience"] = settings.jwt_audience
+        if settings.jwt_issuer:
+            kwargs["issuer"] = settings.jwt_issuer
+        return jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            **kwargs,
+        )
+
     async def _handle(
         self,
         request: Request,
         call_next: Callable[[Request], Coroutine[Any, Any, Response]],
         request_id: str,
     ) -> Response:
-        settings = self._settings
-
         if request.method == "OPTIONS" or request.url.path in self._public_paths:
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
@@ -64,7 +81,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         token = auth_header[7:]
         try:
-            payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+            payload = self._decode_token(token)
             request.state.user_payload = {"sub": payload["sub"], "role": payload["role"]}
         except jwt.ExpiredSignatureError:
             return JSONResponse({"detail": "Token expired"}, status_code=401, headers={"X-Request-ID": request_id})
