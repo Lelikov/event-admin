@@ -304,14 +304,19 @@ async def change_user_email(
             detail="Only client emails can be changed",
         )
 
+    # Normalize once; the same lowercased value is used for the uniqueness
+    # check AND the published payload so downstream cannot store a
+    # case-variant duplicate of an address the pre-check reported as free.
+    new_email = str(body.new_email).lower()
+
     old_email = current_user["email"]
-    if old_email.lower() == str(body.new_email).lower():
+    if old_email.lower() == new_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New email is the same as current email",
         )
 
-    existing = await client.get_user_by_email_role(str(body.new_email).lower(), "client")
+    existing = await client.get_user_by_email_role(new_email, "client")
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -324,7 +329,7 @@ async def change_user_email(
         data={
             "user_id": str(user_id),
             "old_email": old_email,
-            "new_email": body.new_email,
+            "new_email": new_email,
             "requested_by": user.sub,
         },
     )
