@@ -162,8 +162,16 @@ async def reassign_booking_client(
     body: ReassignClientRequest,
     client: FromDishka[IUsersClient],
     publisher: FromDishka[IEventPublisher],
+    controller: FromDishka[IBookingsController],
     user: Annotated[TokenPayload, Depends(require_admin)],
 ) -> dict[str, str]:
+    booking = await controller.get_booking_details(booking_uid)
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Booking with uid={booking_uid!r} not found",
+        )
+
     new_client = await client.get_user_by_email_role(str(body.new_client_email).lower(), "client")
     if new_client is None:
         raise HTTPException(
