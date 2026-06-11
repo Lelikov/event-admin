@@ -34,7 +34,7 @@ NOW = dt.datetime(2026, 6, 11, 12, 0, tzinfo=dt.UTC)
 def make_settings(**overrides: Any) -> Settings:
     defaults: dict[str, Any] = {
         "postgres_dsn": "postgresql+asyncpg://test:test@localhost:5432/test",
-        "jwt_secret_key": "unit-test-secret-key-0123456789",
+        "jwt_secret_key": "unit-test-secret-key-0123456789abcdef",
         "users_service_url": "http://users.test",
         "users_service_api_token": "users-token-0123456789abcdef",
         "cache_invalidation_token": "cache-token-0123456789abcdef",

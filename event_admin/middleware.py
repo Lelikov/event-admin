@@ -18,6 +18,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
     OPTIONS requests are always passed through so CORS preflight works
     regardless of middleware ordering.
+
+    There is intentionally NO debug bypass: authentication is enforced
+    identically in every environment (audit-v2 CRITICAL finding).
     """
 
     def __init__(self, app: ASGIApp, settings: Settings, public_paths: frozenset[str] = frozenset()) -> None:
@@ -45,12 +48,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         request_id: str,
     ) -> Response:
         settings = self._settings
-
-        if settings.debug:
-            request.state.user_payload = {"sub": "debug@local", "role": "admin"}
-            response = await call_next(request)
-            response.headers["X-Request-ID"] = request_id
-            return response
 
         if request.method == "OPTIONS" or request.url.path in self._public_paths:
             response = await call_next(request)

@@ -1,7 +1,24 @@
 from functools import lru_cache
 
-from pydantic import AnyHttpUrl, Field, PostgresDsn, field_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_SECRET_MIN_LENGTH = 16
+_PLACEHOLDER_SECRETS = frozenset(
+    {
+        "change_me_in_production",
+        "changeme",
+        "secret",
+        "password",
+        "token",
+        "dev-token",
+        "test",
+        "123",
+        "1234",
+        "12345678",
+    },
+)
 
 
 class Settings(BaseSettings):
@@ -41,6 +58,28 @@ class Settings(BaseSettings):
 
     event_receiver_url: AnyHttpUrl = Field(strict=True)
     event_receiver_api_key: str = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_secret_strength(self) -> Settings:
+        """Refuse to start with weak or placeholder secrets outside DEBUG.
+
+        DEBUG no longer affects authentication in any way (the auth bypass
+        was removed); it only relaxes this check and switches log rendering.
+        """
+        if self.debug:
+            return self
+        secrets = {
+            "JWT_SECRET_KEY": self.jwt_secret_key,
+            "USERS_SERVICE_API_TOKEN": self.users_service_api_token,
+            "CACHE_INVALIDATION_TOKEN": self.cache_invalidation_token,
+            "EVENT_RECEIVER_API_KEY": self.event_receiver_api_key,
+        }
+        for name, value in secrets.items():
+            if len(value) < _SECRET_MIN_LENGTH:
+                raise ValueError(f"{name} must be at least {_SECRET_MIN_LENGTH} characters (got {len(value)})")
+            if value.lower() in _PLACEHOLDER_SECRETS:
+                raise ValueError(f"{name} is a placeholder value; set a real secret")
+        return self
 
 
 @lru_cache(maxsize=1)
