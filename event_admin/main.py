@@ -19,7 +19,7 @@ from event_admin.routes import root_router
 
 logger = structlog.get_logger(__name__)
 
-PUBLIC_PATHS = frozenset({"/auth/login", "/health", "/api/users/cache/invalidate"})
+PUBLIC_PATHS = frozenset({"/auth/login", "/health", "/ready", "/api/users/cache/invalidate"})
 
 
 def _event_publish_error_handler(_: Request, exc: EventPublishError) -> JSONResponse:

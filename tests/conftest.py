@@ -2,12 +2,13 @@
 
 import datetime as dt
 import uuid
-from typing import Any
+from typing import Any, Self
 
 import httpx
 import pytest
 from dishka import Provider, Scope, provide
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from event_admin.auth import create_access_token
 from event_admin.config import Settings
@@ -194,6 +195,35 @@ class Fakes:
         self.publisher = FakeEventPublisher()
         self.users_cache = UsersCache(ttl_seconds=300)
         self.login_guard = LoginGuard(max_failures=5, lockout_seconds=300)
+        self.engine = FakeEngine()
+
+
+class FakeConnection:
+    """AsyncConnection stand-in for the /ready database ping."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self._error = error
+
+    async def __aenter__(self) -> Self:
+        if self._error is not None:
+            raise self._error
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def execute(self, statement: object) -> None:
+        return None
+
+
+class FakeEngine:
+    """AsyncEngine stand-in; set `connect_error` to simulate an unreachable database."""
+
+    def __init__(self) -> None:
+        self.connect_error: Exception | None = None
+
+    def connect(self) -> FakeConnection:
+        return FakeConnection(self.connect_error)
 
 
 class FakeProvider(Provider):
@@ -239,6 +269,10 @@ class FakeProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_login_guard(self) -> LoginGuard:
         return self._fakes.login_guard
+
+    @provide(scope=Scope.APP)
+    def provide_engine(self) -> AsyncEngine:
+        return self._fakes.engine  # type: ignore[return-value]
 
 
 @pytest.fixture

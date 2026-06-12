@@ -20,12 +20,28 @@ All responses include an `X-Request-ID` header (UUID) for log correlation. Clien
 
 ### GET /health
 
+Liveness probe (k8s `livenessProbe`): the process serves HTTP; never calls dependencies.
+
 | | |
 |---|---|
 | **Auth** | None |
 | **Query params** | None |
 | **Response** | `200 OK` -- `{"status": "ok"}` |
-| **Reference** | `routes.py:31-34` |
+| **Reference** | `routes.py` |
+
+---
+
+### GET /ready
+
+Readiness probe (k8s `readinessProbe`): `SELECT 1` against PostgreSQL (event-saver's DB).
+
+| | |
+|---|---|
+| **Auth** | None |
+| **Query params** | None |
+| **Response** | `200 OK` -- `{"status": "ready", "checks": {"database": true}}` |
+| **Error codes** | `503 Service Unavailable` -- `{"status": "not_ready", "checks": {"database": false}}` |
+| **Reference** | `routes.py` |
 
 ---
 
