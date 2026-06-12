@@ -13,16 +13,25 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from event_admin.auth import TokenPayload, create_access_token, require_admin
 from event_admin.config import Settings
+from event_admin.dto.blacklist import BlacklistCreateDto, BlacklistListFiltersDto, BlacklistUpdateDto
 from event_admin.dto.bookings import BookingListFiltersDto
 from event_admin.enums import BookingStatus
 from event_admin.errors import http_error
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
+from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
 from event_admin.schemas.auth import LoginRequest, LoginResponse
+from event_admin.schemas.blacklist import (
+    BlacklistActiveResponse,
+    BlacklistCreateRequest,
+    BlacklistEntryResponse,
+    BlacklistListResponse,
+    BlacklistUpdateRequest,
+)
 from event_admin.schemas.bookings import (
     BookingDetailsResponse,
     BookingFutureBouncedEmailItemResponse,
@@ -397,6 +406,173 @@ async def get_email_changelog(
     return ProxiedEmailChangelogResponse.model_validate(data)
 
 
+# Blacklist routes (admin JWT via middleware + admin RBAC).
+# Writing blacklist_entries is a sanctioned exception to the read-only rule (same as admin_users).
+blacklist_router = APIRouter(prefix="/api/blacklist", route_class=DishkaRoute, dependencies=[Depends(require_admin)])
+
+# Service route for event-booking; authenticated by BLACKLIST_SERVICE_TOKEN, not admin JWT.
+blacklist_service_router = APIRouter(route_class=DishkaRoute)
+
+
+def _normalize_blacklist_value(field: str, value: str) -> str:
+    """Normalize a blacklist value: client_email is stored lowercased (exact, case-insensitive match)."""
+    stripped = value.strip()
+    if not stripped:
+        raise http_error(status.HTTP_400_BAD_REQUEST, "invalid_value", "value must not be blank")
+    if field == "client_email":
+        return stripped.lower()
+    return stripped
+
+
+def _validate_active_window(active_from: object, active_until: object) -> None:
+    if active_from is None or active_until is None:
+        return
+    if active_from > active_until:  # type: ignore[operator]
+        raise http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_active_window",
+            "active_from must not be after active_until",
+        )
+
+
+def _blacklist_not_found(entry_id: uuid.UUID) -> HTTPException:
+    return http_error(
+        status.HTTP_404_NOT_FOUND,
+        "blacklist_entry_not_found",
+        f"Blacklist entry {entry_id} not found",
+    )
+
+
+@blacklist_router.get(
+    "",
+    response_model=BlacklistListResponse,
+    summary="List blacklist entries",
+    description="List blacklist entries with pagination and optional filters "
+    "(field, value substring, only currently-effective).",
+)
+async def list_blacklist_entries(
+    field: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    value: Annotated[str | None, Query(min_length=1, max_length=320, description="Substring match")] = None,
+    only_effective: Annotated[bool, Query()] = False,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    db: FromDishka[IBlacklistDBAdapter] = None,
+) -> BlacklistListResponse:
+    filters = BlacklistListFiltersDto(field=field, value_contains=value, only_effective=only_effective)
+    entries, total = await db.list_entries(filters, limit=limit, offset=offset)
+    return BlacklistListResponse(
+        items=[BlacklistEntryResponse.from_dto(dto) for dto in entries],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@blacklist_router.post(
+    "",
+    response_model=BlacklistEntryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create blacklist entry",
+    description="Add a blacklist entry. client_email values are stored lowercased (case-insensitive match).",
+)
+async def create_blacklist_entry(
+    body: BlacklistCreateRequest,
+    db: FromDishka[IBlacklistDBAdapter],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> BlacklistEntryResponse:
+    _validate_active_window(body.active_from, body.active_until)
+    entry = await db.create_entry(
+        BlacklistCreateDto(
+            field=body.field,
+            value=_normalize_blacklist_value(body.field, body.value),
+            is_active=body.is_active,
+            active_from=body.active_from,
+            active_until=body.active_until,
+            comment=body.comment,
+            created_by=user.sub,
+        ),
+    )
+    logger.info("blacklist_entry_created", entry_id=str(entry.id), field=entry.field, created_by=user.sub)
+    return BlacklistEntryResponse.from_dto(entry)
+
+
+@blacklist_router.patch(
+    "/{entry_id}",
+    response_model=BlacklistEntryResponse,
+    summary="Update blacklist entry",
+    description="Partially update a blacklist entry; omitted fields are left untouched.",
+)
+async def update_blacklist_entry(
+    entry_id: uuid.UUID,
+    body: BlacklistUpdateRequest,
+    db: FromDishka[IBlacklistDBAdapter],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> BlacklistEntryResponse:
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise http_error(status.HTTP_400_BAD_REQUEST, "empty_update", "Provide at least one field to update")
+    for name in ("field", "value", "is_active"):
+        if name in updates and updates[name] is None:
+            raise http_error(status.HTTP_400_BAD_REQUEST, "field_not_nullable", f"{name} cannot be null")
+
+    existing = await db.get_entry(entry_id)
+    if existing is None:
+        raise _blacklist_not_found(entry_id)
+
+    effective_field = updates.get("field", existing.field)
+    if "value" in updates:
+        updates["value"] = _normalize_blacklist_value(effective_field, updates["value"])
+    if "value" not in updates and effective_field == "client_email":
+        # Field switched to client_email: re-normalize the stored value too.
+        updates["value"] = _normalize_blacklist_value(effective_field, existing.value)
+    _validate_active_window(
+        updates.get("active_from", existing.active_from),
+        updates.get("active_until", existing.active_until),
+    )
+
+    updated = await db.update_entry(entry_id, BlacklistUpdateDto(**updates))
+    if updated is None:
+        raise _blacklist_not_found(entry_id)
+    logger.info("blacklist_entry_updated", entry_id=str(entry_id), updated_by=user.sub, fields=sorted(updates))
+    return BlacklistEntryResponse.from_dto(updated)
+
+
+@blacklist_router.delete(
+    "/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete blacklist entry",
+)
+async def delete_blacklist_entry(
+    entry_id: uuid.UUID,
+    db: FromDishka[IBlacklistDBAdapter],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> None:
+    deleted = await db.delete_entry(entry_id)
+    if not deleted:
+        raise _blacklist_not_found(entry_id)
+    logger.info("blacklist_entry_deleted", entry_id=str(entry_id), deleted_by=user.sub)
+
+
+@blacklist_service_router.get(
+    "/api/blacklist/active",
+    response_model=BlacklistActiveResponse,
+    summary="List currently-effective blacklist values (service endpoint)",
+    description="Called by event-booking. Authenticated via BLACKLIST_SERVICE_TOKEN bearer token; "
+    "effectiveness (is_active + active window) is evaluated in SQL.",
+)
+async def list_active_blacklist_values(
+    request: Request,
+    db: FromDishka[IBlacklistDBAdapter],
+    settings: FromDishka[Settings],
+    field: Annotated[str, Query(min_length=1, max_length=64)] = "client_email",
+) -> BlacklistActiveResponse:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], settings.blacklist_service_token):
+        raise http_error(status.HTTP_401_UNAUTHORIZED, "invalid_service_token", "Invalid service token")
+    values = await db.list_active_values(field)
+    return BlacklistActiveResponse(field=field, values=values)
+
+
 cache_router = APIRouter(route_class=DishkaRoute)
 
 
@@ -420,4 +596,6 @@ async def invalidate_users_cache(
 
 root_router.include_router(bookings_router)
 root_router.include_router(users_router)
+root_router.include_router(blacklist_router)
+root_router.include_router(blacklist_service_router)
 root_router.include_router(cache_router)

@@ -19,3 +19,14 @@ class SqlExecutor:
     async def fetch_all(self, query: str, values: dict) -> list[RowMapping]:
         result = await self.session.execute(text(query), values)
         return list(result.mappings().all())
+
+    async def execute(self, query: str, values: dict) -> RowMapping | None:
+        """Run a mutating statement and commit; returns the first RETURNING row, if any.
+
+        Used only by sanctioned write paths (admin-owned tables such as
+        blacklist_entries); all booking data remains read-only.
+        """
+        result = await self.session.execute(text(query), values)
+        row = result.mappings().first() if result.returns_rows else None
+        await self.session.commit()
+        return row

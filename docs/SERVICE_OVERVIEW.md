@@ -4,6 +4,8 @@
 
 Administrative API for the `event-admin-frontend` React UI. **Reads** are served directly from the PostgreSQL database owned and written by `event-saver` (bookings, notifications, meeting links, chat/video events). **Writes never touch the database**: the two mutation endpoints (client email change, booking client reassignment) publish CloudEvents to `event-receiver`, which routes them through RabbitMQ to the owning services.
 
+**Sanctioned write exceptions** (admin-owned tables, same DB): `admin_users` (login accounts) and `blacklist_entries` (booking blacklist CRUD via `/api/blacklist`; migration owned by event-saver). All booking data remains strictly read-only.
+
 ## Responsibilities
 
 - Authenticate admin users via email + password + TOTP, issue JWTs (`routes.py`)
@@ -11,11 +13,12 @@ Administrative API for the `event-admin-frontend` React UI. **Reads** are served
 - Expose paginated read-only endpoints for bookings, notifications, meeting links, chat events, video events
 - Proxy `/api/users/*` reads to `event-users` through typed allowlist response models (`schemas/users_proxy.py`)
 - Publish `user.email.change_requested` and `booking.client_reassigned` CloudEvents to `event-receiver` (`adapters/event_publisher.py`)
-- Enforce RBAC: all `/bookings/*` and `/api/users/*` routes require the `admin` role
+- Manage the booking blacklist (`/api/blacklist` CRUD writes `blacklist_entries` directly — sanctioned exception, same as `admin_users`) and serve `GET /api/blacklist/active` to `event-booking` (static `BLACKLIST_SERVICE_TOKEN`)
+- Enforce RBAC: all `/bookings/*`, `/api/users/*` and `/api/blacklist` CRUD routes require the `admin` role
 
 ## NOT Responsible For
 
-- **Writing to the database** — `SqlExecutor` exposes only `fetch_one`/`fetch_all`; mutations go out as CloudEvents and are applied by `event-users` / `event-saver`
+- **Writing booking data** — booking mutations go out as CloudEvents and are applied by `event-users` / `event-saver`; `SqlExecutor.execute` exists only for the admin-owned tables (`blacklist_entries`)
 - **Database migrations** — `event-saver/alembic/` owns the shared schema. The single exception is the event-admin-owned `admin_users` table, whose tracked DDL lives in `scripts/admin_users.sql`
 - **User/contact management** — handled by `event-users`
 - **Direct RabbitMQ access** — events go through `event-receiver`'s HTTP ingress (`POST /event/admin`), never straight to the broker
@@ -39,11 +42,12 @@ No direct RabbitMQ or Redis dependencies.
 | `USERS_SERVICE_URL` | Yes | — | Base URL of `event-users` |
 | `USERS_SERVICE_API_TOKEN` | Yes | — | Bearer token for `event-users` calls |
 | `CACHE_INVALIDATION_TOKEN` | Yes | — | Shared secret `event-users` sends to `POST /api/users/cache/invalidate` |
+| `BLACKLIST_SERVICE_TOKEN` | Yes | — | Static bearer token `event-booking` sends to `GET /api/blacklist/active` (constant-time compare) |
 | `EVENT_RECEIVER_URL` | Yes | — | Base URL of `event-receiver` (CloudEvent ingress) |
 | `EVENT_RECEIVER_API_KEY` | Yes | — | Static key for `POST /event/admin`; must match receiver's `ADMIN_API_KEY` |
 | `DEBUG` | No | `False` | Console log rendering + relaxes secret-strength validation. **Does NOT affect authentication** (the old auth bypass was removed in audit-v2) |
 | `LOG_LEVEL` | No | `INFO` | Structlog level |
-| `CORS_ORIGINS` | No | `["http://localhost:5173"]` | Allowed CORS origins (non-credentialed; GET/POST/OPTIONS only) |
+| `CORS_ORIGINS` | No | `["http://localhost:5173"]` | Allowed CORS origins (non-credentialed; GET/POST/PATCH/DELETE/OPTIONS) |
 | `JWT_ALGORITHM` | No | `HS256` | JWT signing algorithm |
 | `JWT_EXPIRE_MINUTES` | No | `60` | Token lifetime in minutes |
 | `JWT_AUDIENCE` / `JWT_ISSUER` | No | unset | Optional aud/iss claim binding (must match `event-users`; tolerant rollout when unset) |
@@ -81,7 +85,7 @@ PostgreSQL             Shared DB (owned by event-saver)
 ```
 
 **Supporting layers:**
-- `interfaces/` — Protocol contracts (`ISqlExecutor`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`)
+- `interfaces/` — Protocol contracts (`ISqlExecutor`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IBlacklistDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`)
 - `dto/` — frozen dataclasses; `schemas/` — Pydantic response models (`from_dto()`), typed users-proxy allowlist models
 - `services/` — `PasswordService` (bcrypt), `TOTPService` (pyotp, fails closed on malformed secrets), `LoginGuard` (lockout + TOTP replay), `UsersCache`
 - `errors.py` — `EventPublishError` (mapped to 502 by an app-level exception handler)
@@ -93,7 +97,7 @@ PostgreSQL             Shared DB (owned by event-saver)
 | Scope | Provided |
 |---|---|
 | APP | `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `LoginGuard`, `UsersCache`, `AsyncClient` (users + receiver), `IUsersClient`, `IEventPublisher` |
-| REQUEST | `AsyncSession`, `ISqlExecutor`, `IAdminUsersDBAdapter`, `IBookingsDBAdapter`, `IBookingsController` |
+| REQUEST | `AsyncSession`, `ISqlExecutor`, `IAdminUsersDBAdapter`, `IBlacklistDBAdapter`, `IBookingsDBAdapter`, `IBookingsController` |
 
 ## Important Behavior Notes
 

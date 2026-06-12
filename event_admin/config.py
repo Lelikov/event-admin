@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     users_cache_ttl_seconds: int = 300
     cache_invalidation_token: str = Field(strict=True)
 
+    # Static bearer token for the GET /api/blacklist/active service endpoint
+    # (used by event-booking; compared with hmac.compare_digest).
+    blacklist_service_token: str = Field(strict=True)
+
     event_receiver_url: AnyHttpUrl = Field(strict=True)
     event_receiver_api_key: str = Field(strict=True)
     event_publish_attempts: int = Field(default=3, ge=1, le=10)
@@ -81,6 +85,7 @@ class Settings(BaseSettings):
             "JWT_SECRET_KEY": self.jwt_secret_key,
             "USERS_SERVICE_API_TOKEN": self.users_service_api_token,
             "CACHE_INVALIDATION_TOKEN": self.cache_invalidation_token,
+            "BLACKLIST_SERVICE_TOKEN": self.blacklist_service_token,
             "EVENT_RECEIVER_API_KEY": self.event_receiver_api_key,
         }
         for name, value in secrets.items():

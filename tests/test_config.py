@@ -23,7 +23,7 @@ def test_placeholder_secret_rejected_outside_debug() -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["users_service_api_token", "cache_invalidation_token", "event_receiver_api_key"],
+    ["users_service_api_token", "cache_invalidation_token", "blacklist_service_token", "event_receiver_api_key"],
 )
 def test_all_secrets_are_validated(field) -> None:
     with pytest.raises(ValidationError):

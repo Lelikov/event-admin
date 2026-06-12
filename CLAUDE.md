@@ -25,11 +25,11 @@ ruff format .
 pre-commit run --all-files
 ```
 
-**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
+**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `BLACKLIST_SERVICE_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
 
 ## Service role in the system
 
-This service **reads** from the database owned and written by **event-saver** and **publishes mutation CloudEvents** to **event-receiver** (it never writes the DB itself).
+This service **reads** from the database owned and written by **event-saver** and **publishes mutation CloudEvents** to **event-receiver**. It never writes booking data itself; sanctioned direct-write exceptions are the admin-owned tables `admin_users` and `blacklist_entries` (`/api/blacklist` CRUD; `GET /api/blacklist/active` serves the currently-effective set to event-booking under the static `BLACKLIST_SERVICE_TOKEN`).
 
 ```
 event-receiver → RabbitMQ → event-saver (writes DB) ← event-admin (reads DB, exposes API)

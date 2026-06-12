@@ -19,7 +19,16 @@ from event_admin.routes import root_router
 
 logger = structlog.get_logger(__name__)
 
-PUBLIC_PATHS = frozenset({"/auth/login", "/health", "/ready", "/api/users/cache/invalidate"})
+PUBLIC_PATHS = frozenset(
+    {
+        "/auth/login",
+        "/health",
+        "/ready",
+        "/api/users/cache/invalidate",
+        # Service endpoint for event-booking; guarded by BLACKLIST_SERVICE_TOKEN in the route.
+        "/api/blacklist/active",
+    },
+)
 
 
 def _event_publish_error_handler(_: Request, exc: EventPublishError) -> JSONResponse:
@@ -75,7 +84,7 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
         # so credentialed CORS is unnecessary; methods/headers are restricted
         # to what the SPA actually uses.
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     return app

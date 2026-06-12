@@ -332,6 +332,59 @@ All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(r
 
 ---
 
+## Blacklist Endpoints (require `admin` role)
+
+The booking blacklist (`blacklist_entries` in the main DB) is **written by event-admin** — a sanctioned exception to the read-only rule, same as `admin_users`. Matching is exact and case-insensitive: `client_email` values are stored lowercased. An entry is **effective** when `is_active = true` AND `now()` is within `[active_from, active_until]` (NULL bound = unbounded); effectiveness is evaluated in SQL.
+
+### GET /api/blacklist
+
+| | |
+|---|---|
+| **Query params** | `field` (optional exact match), `value` (optional substring, case-insensitive), `only_effective` (bool, default `false`), `limit` (1-500, default 50), `offset` (>=0, default 0) |
+| **Response** | `200 OK` — `{"items": [BlacklistEntry], "total": N, "limit": N, "offset": N}` |
+
+`BlacklistEntry`: `{id (uuid), field, value, is_active, active_from, active_until, comment, created_by, created_at, updated_at}`.
+Sorted by `created_at DESC`.
+
+### POST /api/blacklist
+
+| | |
+|---|---|
+| **Request body** | `{"field": "client_email" (default), "value": "<required>", "is_active": true (default), "active_from": null, "active_until": null, "comment": null}` |
+| **Response** | `201 Created` — the created `BlacklistEntry` (`created_by` = admin's email from the JWT) |
+| **Error codes** | `400 invalid_active_window`, `400 invalid_value` |
+
+### PATCH /api/blacklist/{id}
+
+| | |
+|---|---|
+| **Request body** | Any subset of `field`, `value`, `is_active`, `active_from`, `active_until`, `comment`; omitted fields untouched |
+| **Response** | `200 OK` — the updated `BlacklistEntry` |
+| **Error codes** | `400 empty_update`, `400 field_not_nullable`, `400 invalid_active_window`, `400 invalid_value`, `404 blacklist_entry_not_found` |
+
+### DELETE /api/blacklist/{id}
+
+| | |
+|---|---|
+| **Response** | `204 No Content` |
+| **Error codes** | `404 blacklist_entry_not_found` |
+
+---
+
+## Blacklist Service Endpoint (service token)
+
+### GET /api/blacklist/active
+
+| | |
+|---|---|
+| **Auth** | `Authorization: Bearer <BLACKLIST_SERVICE_TOKEN>` (separate static token, **not** a user JWT; constant-time compare) |
+| **Query params** | `field` (default `client_email`) |
+| **Response** | `200 OK` — `{"field": "client_email", "values": ["a@b.c", ...]}` (currently-effective values only) |
+| **Error codes** | `401 invalid_service_token` |
+| **Notes** | Called by `event-booking` (cached in-memory there, TTL `BLACKLIST_CACHE_TTL`). |
+
+---
+
 ## Cache Endpoints
 
 ### POST /api/users/cache/invalidate
@@ -360,7 +413,13 @@ Clients MUST key error handling/translation on `code` (the `message` text may ch
 | 401 | `not_authenticated` | Not authenticated | Auth dependency reached without middleware payload |
 | 401 | `invalid_credentials` | Invalid credentials | Login: wrong email/password/TOTP or inactive user |
 | 401 | `invalid_invalidation_token` | Invalid invalidation token | Wrong `CACHE_INVALIDATION_TOKEN` on cache invalidate |
+| 401 | `invalid_service_token` | Invalid service token | Wrong `BLACKLIST_SERVICE_TOKEN` on `/api/blacklist/active` |
 | 403 | `admin_access_required` | Admin access required | Valid token but `role != "admin"` |
+| 400 | `invalid_active_window` | active_from must not be after active_until | Blacklist create/update window inverted |
+| 400 | `invalid_value` | value must not be blank | Blacklist value blank after trimming |
+| 400 | `empty_update` | Provide at least one field to update | Blacklist PATCH with empty body |
+| 400 | `field_not_nullable` | field/value/is_active cannot be null | Blacklist PATCH sets a non-nullable field to null |
+| 404 | `blacklist_entry_not_found` | Blacklist entry ... not found | PATCH/DELETE on unknown blacklist id |
 | 400 | `too_many_booking_uids` | Too many booking_uids (max 200) | `booking_uids` filter over the limit |
 | 400 | `not_a_client` | Only client emails can be changed | change-email on a non-client user |
 | 400 | `email_unchanged` | New email is the same as current email | change-email no-op |

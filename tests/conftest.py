@@ -1,5 +1,6 @@
 """Shared fixtures: the app is built with a fake DI provider (no real DB / network)."""
 
+import dataclasses
 import datetime as dt
 import uuid
 from typing import Any, Self
@@ -12,6 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from event_admin.auth import create_access_token
 from event_admin.config import Settings
+from event_admin.dto.blacklist import (
+    UNSET,
+    BlacklistCreateDto,
+    BlacklistEntryDto,
+    BlacklistListFiltersDto,
+    BlacklistUpdateDto,
+)
 from event_admin.dto.bookings import (
     BookingDetailsDto,
     BookingFutureBouncedEmailItemDto,
@@ -20,6 +28,7 @@ from event_admin.dto.bookings import (
     ParticipantDto,
 )
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
+from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.password import IPasswordService
@@ -40,6 +49,7 @@ def make_settings(**overrides: Any) -> Settings:
         "users_service_url": "http://users.test",
         "users_service_api_token": "users-token-0123456789abcdef",
         "cache_invalidation_token": "cache-token-0123456789abcdef",
+        "blacklist_service_token": "blacklist-token-0123456789abcdef",
         "event_receiver_url": "http://receiver.test",
         "event_receiver_api_key": "receiver-key-0123456789abcdef",
     }
@@ -174,6 +184,75 @@ class FakeUsersClient:
         return self.changelog_response
 
 
+class FakeBlacklistDB:
+    """In-memory IBlacklistDBAdapter mirroring the SQL effectiveness semantics."""
+
+    def __init__(self) -> None:
+        self.entries: dict[uuid.UUID, BlacklistEntryDto] = {}
+        self.now: dt.datetime = NOW
+
+    def _is_effective(self, entry: BlacklistEntryDto) -> bool:
+        if not entry.is_active:
+            return False
+        if entry.active_from is not None and entry.active_from > self.now:
+            return False
+        return not (entry.active_until is not None and entry.active_until < self.now)
+
+    async def list_entries(
+        self,
+        filters: BlacklistListFiltersDto,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[BlacklistEntryDto], int]:
+        entries = sorted(self.entries.values(), key=lambda e: e.created_at, reverse=True)
+        if filters.field is not None:
+            entries = [e for e in entries if e.field == filters.field]
+        if filters.value_contains is not None:
+            entries = [e for e in entries if filters.value_contains.lower() in e.value.lower()]
+        if filters.only_effective:
+            entries = [e for e in entries if self._is_effective(e)]
+        return entries[offset : offset + limit], len(entries)
+
+    async def get_entry(self, entry_id: uuid.UUID) -> BlacklistEntryDto | None:
+        return self.entries.get(entry_id)
+
+    async def create_entry(self, data: BlacklistCreateDto) -> BlacklistEntryDto:
+        entry = BlacklistEntryDto(
+            id=uuid.uuid4(),
+            field=data.field,
+            value=data.value,
+            is_active=data.is_active,
+            active_from=data.active_from,
+            active_until=data.active_until,
+            comment=data.comment,
+            created_by=data.created_by,
+            created_at=self.now,
+            updated_at=self.now,
+        )
+        self.entries[entry.id] = entry
+        return entry
+
+    async def update_entry(self, entry_id: uuid.UUID, data: BlacklistUpdateDto) -> BlacklistEntryDto | None:
+        existing = self.entries.get(entry_id)
+        if existing is None:
+            return None
+        updates = {
+            name: getattr(data, name)
+            for name in ("field", "value", "is_active", "active_from", "active_until", "comment")
+            if getattr(data, name) is not UNSET
+        }
+        updated = dataclasses.replace(existing, **updates, updated_at=self.now)
+        self.entries[entry_id] = updated
+        return updated
+
+    async def delete_entry(self, entry_id: uuid.UUID) -> bool:
+        return self.entries.pop(entry_id, None) is not None
+
+    async def list_active_values(self, field: str) -> list[str]:
+        return [e.value for e in self.entries.values() if e.field == field and self._is_effective(e)]
+
+
 class FakeEventPublisher:
     def __init__(self) -> None:
         self.published: list[dict[str, Any]] = []
@@ -191,6 +270,7 @@ class Fakes:
         self.password_service = FakePasswordService()
         self.totp_service = FakeTOTPService()
         self.bookings_controller = FakeBookingsController()
+        self.blacklist_db = FakeBlacklistDB()
         self.users_client = FakeUsersClient()
         self.publisher = FakeEventPublisher()
         self.users_cache = UsersCache(ttl_seconds=300)
@@ -253,6 +333,10 @@ class FakeProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_bookings_controller(self) -> IBookingsController:
         return self._fakes.bookings_controller
+
+    @provide(scope=Scope.APP)
+    def provide_blacklist_db(self) -> IBlacklistDBAdapter:
+        return self._fakes.blacklist_db
 
     @provide(scope=Scope.APP)
     def provide_users_client(self) -> IUsersClient:

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from event_admin.adapters.admin_users_db import AdminUsersDBAdapter
+from event_admin.adapters.blacklist_db import BlacklistDBAdapter
 from event_admin.adapters.bookings_db import BookingsDBAdapter
 from event_admin.adapters.event_publisher import EventPublisherClient
 from event_admin.adapters.sql import SqlExecutor
@@ -18,6 +19,7 @@ from event_admin.adapters.users_client import UsersClient
 from event_admin.config import Settings
 from event_admin.controllers.bookings import BookingsController
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
+from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdapter
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.password import IPasswordService
@@ -106,6 +108,10 @@ class AppProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def provide_admin_users_db_adapter(self, sql_executor: ISqlExecutor) -> IAdminUsersDBAdapter:
         return AdminUsersDBAdapter(sql_executor)
+
+    @provide(scope=Scope.REQUEST)
+    def provide_blacklist_db_adapter(self, sql_executor: ISqlExecutor) -> IBlacklistDBAdapter:
+        return BlacklistDBAdapter(sql_executor)
 
     @provide(scope=Scope.REQUEST)
     def provide_bookings_db_adapter(self, sql_executor: ISqlExecutor) -> IBookingsDBAdapter:
