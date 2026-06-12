@@ -13,6 +13,7 @@ from event_admin.config import Settings, get_settings
 from event_admin.errors import EventPublishError
 from event_admin.ioc import AppProvider
 from event_admin.logger import setup_logger
+from event_admin.metrics import HttpMetricsMiddleware
 from event_admin.middleware import JWTAuthMiddleware
 from event_admin.routes import root_router
 
@@ -24,6 +25,7 @@ PUBLIC_PATHS = frozenset(
         "/auth/login",
         "/health",
         "/ready",
+        "/metrics",
         "/api/users/cache/invalidate",
         # Service endpoint for event-booking; guarded by BLACKLIST_SERVICE_TOKEN in the route.
         "/api/blacklist/active",
@@ -87,6 +89,9 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
+    # Outermost: observes every request (auth rejections included; those have no
+    # matched route yet and are recorded as route="unmatched").
+    app.add_middleware(HttpMetricsMiddleware)
     return app
 
 

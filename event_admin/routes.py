@@ -6,11 +6,12 @@ import httpx
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from event_admin import metrics
 from event_admin.auth import TokenPayload, create_access_token, require_admin
 from event_admin.config import Settings
 from event_admin.dto.blacklist import BlacklistCreateDto, BlacklistListFiltersDto, BlacklistUpdateDto
@@ -82,6 +83,11 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@root_router.get("/metrics", summary="Prometheus metrics", description="Prometheus exposition endpoint.")
+async def metrics_endpoint() -> Response:
+    return metrics.metrics_response()
+
+
 @root_router.get("/ready", summary="Readiness probe", description="Verifies PostgreSQL connectivity.")
 async def ready(engine: FromDishka[AsyncEngine]) -> JSONResponse:
     database_ok = False
@@ -121,6 +127,7 @@ async def login(
     guard_key = f"{client_ip}:{email}"
 
     if guard.is_locked(guard_key):
+        metrics.LOGINS_TOTAL.labels(outcome="blocked").inc()
         logger.warning("login_blocked", email=email, client_ip=client_ip, reason="too_many_failures")
         raise http_error(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -130,6 +137,7 @@ async def login(
 
     def reject(reason: str) -> HTTPException:
         guard.record_failure(guard_key)
+        metrics.LOGINS_TOTAL.labels(outcome="failure").inc()
         logger.warning("login_failed", email=email, client_ip=client_ip, reason=reason)
         return http_error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Invalid credentials")
 
@@ -148,6 +156,7 @@ async def login(
     guard.mark_totp_used(email, body.totp_code)
     guard.reset(guard_key)
     token = create_access_token(settings, email=user["email"], role=user["role"])
+    metrics.LOGINS_TOTAL.labels(outcome="success").inc()
     logger.info("login_success", email=user["email"], role=user["role"])
     return LoginResponse(access_token=token, role=user["role"])
 
@@ -492,6 +501,7 @@ async def create_blacklist_entry(
             created_by=user.sub,
         ),
     )
+    metrics.BLACKLIST_OPS_TOTAL.labels(op="create").inc()
     logger.info("blacklist_entry_created", entry_id=str(entry.id), field=entry.field, created_by=user.sub)
     return BlacklistEntryResponse.from_dto(entry)
 
@@ -533,6 +543,7 @@ async def update_blacklist_entry(
     updated = await db.update_entry(entry_id, BlacklistUpdateDto(**updates))
     if updated is None:
         raise _blacklist_not_found(entry_id)
+    metrics.BLACKLIST_OPS_TOTAL.labels(op="update").inc()
     logger.info("blacklist_entry_updated", entry_id=str(entry_id), updated_by=user.sub, fields=sorted(updates))
     return BlacklistEntryResponse.from_dto(updated)
 
@@ -550,6 +561,7 @@ async def delete_blacklist_entry(
     deleted = await db.delete_entry(entry_id)
     if not deleted:
         raise _blacklist_not_found(entry_id)
+    metrics.BLACKLIST_OPS_TOTAL.labels(op="delete").inc()
     logger.info("blacklist_entry_deleted", entry_id=str(entry_id), deleted_by=user.sub)
 
 

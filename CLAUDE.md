@@ -67,6 +67,7 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`schemas/bookings.py`** — Pydantic models for booking responses with `from_dto()` classmethods
 - **`schemas/users_proxy.py`** — typed allowlist models for `/api/users/*` proxy responses (unknown upstream fields are dropped)
 - **`middleware.py`** — `JWTAuthMiddleware`; validates Bearer tokens (always — no debug bypass), optional aud/iss binding, binds request-id to structlog context
+- **`metrics.py`** — Prometheus metrics: HTTP RED middleware (`http_requests_total`, `http_request_duration_seconds` by route template; `/metrics` + `/health` excluded), `admin_logins_total{outcome}`, `admin_blacklist_ops_total{op}`; exposed at public `GET /metrics`
 - **`auth.py`** — `create_access_token(settings, ...)`, `get_current_user`, `require_admin` FastAPI dependencies
 - **`errors.py`** — `EventPublishError` domain error + `http_error()` helper: ALL error responses use structured `detail = {"code": "<stable_snake_case>", "message": "<human text>"}` (codes are a stable contract for the frontend; see `docs/API_CONTRACTS.md` § Common Error Responses)
 - **`main.py`** — `create_app()` factory (single Settings path; CORS middleware added last = outermost, do not reorder)

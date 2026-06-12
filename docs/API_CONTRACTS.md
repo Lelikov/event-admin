@@ -45,6 +45,28 @@ Readiness probe (k8s `readinessProbe`): `SELECT 1` against PostgreSQL (event-sav
 
 ---
 
+### GET /metrics
+
+Prometheus exposition endpoint (`prometheus_client.generate_latest`). `/metrics` and `/health`
+requests are excluded from the RED counters.
+
+| | |
+|---|---|
+| **Auth** | None |
+| **Response** | `200 OK`, `text/plain; version=0.0.4; charset=utf-8` |
+| **Reference** | `routes.py`, `metrics.py` |
+
+**Exposed metrics**:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `http_requests_total` | counter | `method`, `route` (route template; `unmatched` for 404s and middleware 401s), `status` |
+| `http_request_duration_seconds` | histogram | `method`, `route` |
+| `admin_logins_total` | counter | `outcome` (success/failure/blocked) |
+| `admin_blacklist_ops_total` | counter | `op` (create/update/delete) |
+
+---
+
 ### POST /auth/login
 
 | | |
