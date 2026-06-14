@@ -105,6 +105,10 @@ PostgreSQL             Shared DB (owned by event-saver)
 2. **Mutations are fire-and-acknowledge**: `change-email` and `reassign-client` return `202 Accepted` after the CloudEvent is accepted by event-receiver. If publishing fails, the client receives `502` with "the action was NOT applied".
 3. **In-memory state** (`LoginGuard`, `UsersCache`) is per-process; multi-replica deployments need a shared store for lockout/replay tracking to be global.
 
+## Tracing
+
+OpenTelemetry auto-instrumentation (FastAPI, httpx, asyncpg; no RabbitMQ broker in this service); exported via OTLP/gRPC to the collector → Tempo; gated by `OTEL_SDK_DISABLED` (off by default).
+
 ## Known Limitations
 
 1. **No server-side JWT revocation** — `POST /auth/logout` is a documented client-side no-op; lifetime is 60 min by default.
