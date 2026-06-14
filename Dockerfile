@@ -1,6 +1,5 @@
-# Built with the monorepo root as context for compose uniformity
-# (event-admin itself has no event-schemas dependency):
-#   docker build -f event-admin/Dockerfile .
+# Self-contained build (context = this service repo root):
+#   docker build -t event-admin .
 ARG BASE_IMAGE="python:3.14.0"
 
 FROM ${BASE_IMAGE} AS base
@@ -15,14 +14,14 @@ FROM base AS deps
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir --upgrade uv==0.11.3
 
-COPY event-admin/pyproject.toml event-admin/uv.lock ${APP_PATH}/
+COPY pyproject.toml uv.lock ${APP_PATH}/
 RUN uv sync --frozen --no-install-project --no-dev
 
 FROM deps AS development
 
-COPY event-admin/event_admin ${APP_PATH}/event_admin
-COPY event-admin/scripts ${APP_PATH}/scripts
-COPY event-admin/uvicorn_config.json ${APP_PATH}/
+COPY event_admin ${APP_PATH}/event_admin
+COPY scripts ${APP_PATH}/scripts
+COPY uvicorn_config.json ${APP_PATH}/
 
 EXPOSE 8888
 
