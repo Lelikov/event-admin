@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
     from structlog.processors import JSONRenderer
 
+from event_admin.telemetry import add_otel_trace_context
+
 
 def setup_logger(log_level: int, console_render: bool) -> None:
     shared_processors = [
@@ -18,6 +20,7 @@ def setup_logger(log_level: int, console_render: bool) -> None:
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.contextvars.merge_contextvars,
+        add_otel_trace_context,
         structlog.processors.CallsiteParameterAdder(
             {
                 structlog.processors.CallsiteParameter.PATHNAME,

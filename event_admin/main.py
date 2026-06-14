@@ -16,6 +16,7 @@ from event_admin.logger import setup_logger
 from event_admin.metrics import HttpMetricsMiddleware
 from event_admin.middleware import JWTAuthMiddleware
 from event_admin.routes import root_router
+from event_admin.telemetry import instrument_asyncpg, instrument_fastapi, setup_tracing
 
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +68,9 @@ def create_app(settings: Settings | None = None, provider: Provider | None = Non
         logger.info("Event admin application shutdown complete")
 
     app = FastAPI(title="event-admin", version="0.1.0", lifespan=lifespan)
+    setup_tracing()
+    instrument_fastapi(app)
+    instrument_asyncpg()
     setup_dishka(container=container, app=app)
     app.include_router(root_router)
     app.add_exception_handler(EventPublishError, _event_publish_error_handler)

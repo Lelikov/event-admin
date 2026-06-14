@@ -1,5 +1,9 @@
 """Shared fixtures: the app is built with a fake DI provider (no real DB / network)."""
 
+import os
+
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
 import dataclasses
 import datetime as dt
 import uuid
