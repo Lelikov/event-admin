@@ -2,6 +2,7 @@
 
 import os
 
+
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 import dataclasses
@@ -35,6 +36,7 @@ from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
+from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
@@ -56,6 +58,8 @@ def make_settings(**overrides: Any) -> Settings:
         "blacklist_service_token": "blacklist-token-0123456789abcdef",
         "event_receiver_url": "http://receiver.test",
         "event_receiver_api_key": "receiver-key-0123456789abcdef",
+        "notifier_service_url": "http://notifier.test",
+        "notifier_admin_token": "notifier-admin-token-0123456789abcdef",
     }
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
@@ -268,6 +272,35 @@ class FakeEventPublisher:
         self.published.append({"source": source, "event_type": event_type, "data": data})
 
 
+class FakeNotifierClient:
+    def __init__(self) -> None:
+        self.config_response: dict[str, Any] = {"bindings": []}
+        self.put_response: dict[str, Any] = {"status": "ok"}
+        self.templates_response: dict[str, Any] = {"templates": []}
+        self.preview_response: dict[str, Any] = {"rendered": "preview text"}
+        self.error: httpx.HTTPStatusError | None = None
+
+    async def get_config(self) -> dict[str, Any]:
+        if self.error is not None:
+            raise self.error
+        return self.config_response
+
+    async def put_config(self, trigger_event: str, channel: str, body: dict[str, Any]) -> dict[str, Any]:
+        if self.error is not None:
+            raise self.error
+        return self.put_response
+
+    async def unisender_templates(self, *, refresh: bool) -> dict[str, Any]:
+        if self.error is not None:
+            raise self.error
+        return self.templates_response
+
+    async def telegram_preview(self, body: dict[str, Any]) -> dict[str, Any]:
+        if self.error is not None:
+            raise self.error
+        return self.preview_response
+
+
 class Fakes:
     def __init__(self) -> None:
         self.admin_db = FakeAdminUsersDB()
@@ -277,6 +310,7 @@ class Fakes:
         self.blacklist_db = FakeBlacklistDB()
         self.users_client = FakeUsersClient()
         self.publisher = FakeEventPublisher()
+        self.notifier_client = FakeNotifierClient()
         self.users_cache = UsersCache(ttl_seconds=300)
         self.login_guard = LoginGuard(max_failures=5, lockout_seconds=300)
         self.engine = FakeEngine()
@@ -349,6 +383,10 @@ class FakeProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_event_publisher(self) -> IEventPublisher:
         return self._fakes.publisher
+
+    @provide(scope=Scope.APP)
+    def provide_notifier_client(self) -> INotifierClient:
+        return self._fakes.notifier_client
 
     @provide(scope=Scope.APP)
     def provide_users_cache(self) -> UsersCache:

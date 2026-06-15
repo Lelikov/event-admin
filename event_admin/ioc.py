@@ -14,6 +14,7 @@ from event_admin.adapters.admin_users_db import AdminUsersDBAdapter
 from event_admin.adapters.blacklist_db import BlacklistDBAdapter
 from event_admin.adapters.bookings_db import BookingsDBAdapter
 from event_admin.adapters.event_publisher import EventPublisherClient
+from event_admin.adapters.notifier_client import NotifierClient
 from event_admin.adapters.sql import SqlExecutor
 from event_admin.adapters.users_client import UsersClient
 from event_admin.config import Settings
@@ -22,6 +23,7 @@ from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdapter
 from event_admin.interfaces.event_publisher import IEventPublisher
+from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 from event_admin.interfaces.totp import ITOTPService
@@ -158,3 +160,13 @@ class AppProvider(Provider):
             api_token=settings.users_service_api_token,
             cache=cache,
         )
+
+    # ========== Notifier Client ==========
+
+    @provide(scope=Scope.APP)
+    async def provide_notifier_client(self, settings: Settings) -> AsyncGenerator[INotifierClient]:
+        async with AsyncClient(base_url=str(settings.notifier_service_url)) as http_client:
+            yield NotifierClient(
+                http_client=http_client,
+                api_token=settings.notifier_admin_token,
+            )

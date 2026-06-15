@@ -22,6 +22,7 @@ from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
 from event_admin.interfaces.blacklist import IBlacklistDBAdapter
 from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
+from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
@@ -65,6 +66,13 @@ def _users_proxy_error(exc: httpx.HTTPStatusError) -> HTTPException:
     upstream_status = exc.response.status_code
     message = f"Users service returned an error (status {upstream_status})"
     return http_error(upstream_status, "users_service_error", message)
+
+
+def _notifier_proxy_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    """Map an upstream event-notifier error to a structured response, preserving the status code."""
+    upstream_status = exc.response.status_code
+    message = f"Notifier service returned an error (status {upstream_status})"
+    return http_error(upstream_status, "notifier_service_error", message)
 
 
 # Public routes (no auth required)
@@ -606,8 +614,73 @@ async def invalidate_users_cache(
     cache.invalidate()
 
 
+# Notifications routes (proxy to event-notifier admin API)
+notifications_router = APIRouter(
+    prefix="/api/notifications",
+    route_class=DishkaRoute,
+    dependencies=[Depends(require_admin)],
+)
+
+
+@notifications_router.get(
+    "/config",
+    summary="Get notification bindings",
+    description="Proxy to event-notifier. Returns all per-event channel bindings.",
+)
+async def proxy_get_notification_config(client: FromDishka[INotifierClient]) -> dict:
+    try:
+        return await client.get_config()
+    except httpx.HTTPStatusError as exc:
+        raise _notifier_proxy_error(exc) from exc
+
+
+@notifications_router.put(
+    "/config/{trigger_event}/{channel}",
+    summary="Update notification binding",
+    description="Proxy to event-notifier. Enable/disable a channel and update its template config.",
+)
+async def proxy_put_notification_config(
+    trigger_event: str,
+    channel: str,
+    body: dict,
+    client: FromDishka[INotifierClient],
+) -> dict:
+    try:
+        return await client.put_config(trigger_event, channel, body)
+    except httpx.HTTPStatusError as exc:
+        raise _notifier_proxy_error(exc) from exc
+
+
+@notifications_router.get(
+    "/unisender-templates",
+    summary="List UniSender templates",
+    description="Proxy to event-notifier. Returns cached UniSender template list.",
+)
+async def proxy_unisender_templates(
+    client: FromDishka[INotifierClient],
+    refresh: bool = False,
+) -> dict:
+    try:
+        return await client.unisender_templates(refresh=refresh)
+    except httpx.HTTPStatusError as exc:
+        raise _notifier_proxy_error(exc) from exc
+
+
+@notifications_router.post(
+    "/telegram/preview",
+    summary="Preview Telegram template",
+    description="Proxy to event-notifier. Renders a Jinja2 body with sample data.",
+)
+async def proxy_telegram_preview(body: dict, client: FromDishka[INotifierClient]) -> dict:
+    try:
+        return await client.telegram_preview(body)
+    except httpx.HTTPStatusError as exc:
+        raise _notifier_proxy_error(exc) from exc
+
+
 root_router.include_router(bookings_router)
 root_router.include_router(users_router)
 root_router.include_router(blacklist_router)
 root_router.include_router(blacklist_service_router)
 root_router.include_router(cache_router)
+root_router.include_router(notifications_router)

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     users_cache_ttl_seconds: int = 300
     cache_invalidation_token: str = Field(strict=True)
 
+    notifier_service_url: AnyHttpUrl = Field(strict=True)
+    notifier_admin_token: str = Field(strict=True)
+
     # Static bearer token for the GET /api/blacklist/active service endpoint
     # (used by event-booking; compared with hmac.compare_digest).
     blacklist_service_token: str = Field(strict=True)
