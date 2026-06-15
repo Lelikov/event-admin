@@ -393,6 +393,54 @@ Sorted by `created_at DESC`.
 
 ---
 
+## Notifications Proxy Endpoints (require `admin` role)
+
+All `/api/notifications` routes are protected by both `JWTAuthMiddleware` and
+`Depends(require_admin)`. They proxy to the `event-notifier` admin API using a static
+service token (`NOTIFIER_ADMIN_TOKEN`, sent as `Authorization: Bearer <NOTIFIER_ADMIN_TOKEN>`
+to the notifier). Upstream HTTP errors are forwarded as status codes.
+
+### GET /api/notifications/config
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Response** | `200 OK` — `{"bindings": [{trigger_event, channel, enabled, unisender_template_id, telegram_body, updated_at}, ...]}` |
+| **Error codes** | `401`, `403`, upstream error statuses forwarded |
+| **Notes** | Returns all 14 rows (7 `TriggerEvent`s × {email, telegram}). |
+
+### PUT /api/notifications/config/{trigger_event}/{channel}
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `trigger_event` (str), `channel` (`email` or `telegram`) |
+| **Request body** | `{"enabled": bool, "unisender_template_id": str\|null, "telegram_body": str\|null}` |
+| **Response** | `200 OK` — `{"status": "ok"}` |
+| **Error codes** | `400` (invalid Jinja2 template or unknown channel — forwarded from notifier), `401`, `403`, upstream errors forwarded |
+| **Notes** | The notifier validates the Jinja2 body and invalidates its `BindingsProvider` cache before returning. |
+
+### GET /api/notifications/unisender-templates
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Query params** | `refresh` (bool, default `false`) — bypasses the notifier's template-list cache |
+| **Response** | `200 OK` — `{"templates": [{"id": "...", "name": "..."}, ...]}` |
+| **Error codes** | `401`, `403`, upstream errors forwarded |
+
+### POST /api/notifications/telegram/preview
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Request body** | `{"telegram_body": "...", "sample_data": {...}\|null}` |
+| **Response** | `200 OK` — `{"rendered": "..."}` |
+| **Error codes** | `400` (Jinja2 render error — forwarded), `401`, `403` |
+| **Notes** | `sample_data` defaults to a built-in set of booking field names on the notifier side. |
+
+---
+
 ## Blacklist Service Endpoint (service token)
 
 ### GET /api/blacklist/active

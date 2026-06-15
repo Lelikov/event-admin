@@ -25,7 +25,7 @@ ruff format .
 pre-commit run --all-files
 ```
 
-**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `BLACKLIST_SERVICE_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
+**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `BLACKLIST_SERVICE_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`, `NOTIFIER_SERVICE_URL`, `NOTIFIER_ADMIN_TOKEN`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
 
 ## Service role in the system
 
@@ -42,6 +42,15 @@ event-receiver → RabbitMQ → event-saver (writes DB) ← event-admin (reads D
 - **Database migrations** live in **`event-saver/alembic/`** — never create migrations here. The single event-admin-owned table (`admin_users`) has tracked DDL in `scripts/admin_users.sql`
 - **Writes** go out as CloudEvents via `EventPublisherClient` → event-receiver `POST /event/admin`; publish failures map to 502 (`EventPublishError`)
 
+### Notifications proxy
+
+`/api/notifications/*` endpoints (require_admin) forward requests to the `event-notifier`
+admin API and return the response. The service token (`NOTIFIER_ADMIN_TOKEN`) must match the
+value configured in `event-notifier`. The proxy mirrors the pattern used for `event-users`:
+an `INotifierClient` protocol, a `NotifierClient` httpx adapter (`NOTIFIER_SERVICE_URL`),
+and a `_notifier_proxy_error` error mapper in `routes.py`. The admin-frontend "Уведомления"
+page is the only caller.
+
 ## Architecture
 
 Layered async FastAPI service for reading booking data from PostgreSQL.
@@ -56,8 +65,9 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`adapters/admin_users_db.py`** — `AdminUsersDBAdapter`; fetches admin user rows by email for login
 - **`adapters/sql.py`** — `SqlExecutor` wraps `AsyncSession` with `text()` queries; used by all DB adapters
 - **`adapters/users_client.py`** — `UsersClient`; httpx-based proxy to `event-users` service (lookup via `GET /api/users/by-identity`); caches responses via `UsersCache`
+- **`adapters/notifier_client.py`** — `NotifierClient`; httpx-based proxy to `event-notifier` admin API (`NOTIFIER_SERVICE_URL`); sends `Authorization: Bearer <NOTIFIER_ADMIN_TOKEN>`; implements `INotifierClient` protocol (`interfaces/notifier.py`)
 - **`adapters/event_publisher.py`** — `EventPublisherClient`; publishes binary-mode CloudEvents to event-receiver `POST /event/admin` with tenacity retries; raises `EventPublishError` (mapped to 502)
-- **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`
+- **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`, `INotifierClient`
 - **`services/password.py`** — `PasswordService`; bcrypt password verification (`IPasswordService`)
 - **`services/totp.py`** — `TOTPService`; TOTP verification via pyotp (`ITOTPService`); fails closed on malformed secrets
 - **`services/login_guard.py`** — `LoginGuard`; in-memory login lockout (per IP+email) and TOTP single-use tracking
@@ -75,7 +85,7 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`db/models.py`** — SQLAlchemy ORM models (schema reference only; `admin_users` DDL is tracked in `scripts/admin_users.sql`)
 
 **DI scopes:**
-- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `LoginGuard`, `UsersCache`, `AsyncClient` (httpx), `IUsersClient`, `IEventPublisher`
+- `APP` scope: `Settings`, `AsyncEngine`, `async_sessionmaker`, `ISqlExecutorFactory`, `IPasswordService`, `ITOTPService`, `LoginGuard`, `UsersCache`, `AsyncClient` (httpx), `IUsersClient`, `IEventPublisher`, `INotifierClient`
 - `REQUEST` scope: `AsyncSession`, `ISqlExecutor`, `IAdminUsersDBAdapter`, `IBookingsDBAdapter`, `IBookingsController`
 
 **Concurrency rule:** never `asyncio.gather` multiple queries on the request-scoped `SqlExecutor` — the shared `AsyncSession` forbids concurrent operations (regression-tested).
