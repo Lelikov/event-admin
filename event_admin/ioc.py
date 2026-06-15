@@ -15,6 +15,7 @@ from event_admin.adapters.blacklist_db import BlacklistDBAdapter
 from event_admin.adapters.bookings_db import BookingsDBAdapter
 from event_admin.adapters.event_publisher import EventPublisherClient
 from event_admin.adapters.notifier_client import NotifierClient
+from event_admin.adapters.shortener_client import ShortenerClient
 from event_admin.adapters.sql import SqlExecutor
 from event_admin.adapters.users_client import UsersClient
 from event_admin.config import Settings
@@ -25,6 +26,7 @@ from event_admin.interfaces.bookings import IBookingsController, IBookingsDBAdap
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
+from event_admin.interfaces.shortener import IShortenerClient
 from event_admin.interfaces.sql import ISqlExecutor, ISqlExecutorFactory
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
@@ -170,3 +172,10 @@ class AppProvider(Provider):
                 http_client=http_client,
                 api_token=settings.notifier_admin_token,
             )
+
+    # ========== Shortener Client ==========
+
+    @provide(scope=Scope.APP)
+    async def provide_shortener_client(self, settings: Settings) -> AsyncGenerator[IShortenerClient]:
+        async with AsyncClient(base_url=str(settings.shortener_url)) as http_client:
+            yield ShortenerClient(http_client=http_client, api_key=settings.shortener_api_key)

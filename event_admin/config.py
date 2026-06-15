@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     notifier_service_url: AnyHttpUrl = Field(strict=True)
     notifier_admin_token: str = Field(strict=True)
 
+    shortener_url: AnyHttpUrl = Field(strict=True)
+    shortener_api_key: str = Field(strict=True)
+
     # Static bearer token for the GET /api/blacklist/active service endpoint
     # (used by event-booking; compared with hmac.compare_digest).
     blacklist_service_token: str = Field(strict=True)

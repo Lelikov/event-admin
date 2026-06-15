@@ -39,6 +39,7 @@ from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
+from event_admin.interfaces.shortener import IShortenerClient
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
 from event_admin.main import create_app
@@ -61,6 +62,8 @@ def make_settings(**overrides: Any) -> Settings:
         "event_receiver_api_key": "receiver-key-0123456789abcdef",
         "notifier_service_url": "http://notifier.test",
         "notifier_admin_token": "notifier-admin-token-0123456789abcdef",
+        "shortener_url": "http://shortener.test",
+        "shortener_api_key": "shortener-key-0123456789abcdef",
     }
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
@@ -334,6 +337,14 @@ class FakeNotifierClient:
         return self.preview_response
 
 
+class FakeShortenerClient:
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    async def get_click_count(self, ident: str) -> int | None:
+        return self.counts.get(ident)
+
+
 class Fakes:
     def __init__(self) -> None:
         self.admin_db = FakeAdminUsersDB()
@@ -344,6 +355,7 @@ class Fakes:
         self.users_client = FakeUsersClient()
         self.publisher = FakeEventPublisher()
         self.notifier_client = FakeNotifierClient()
+        self.shortener = FakeShortenerClient()
         self.users_cache = UsersCache(ttl_seconds=300)
         self.login_guard = LoginGuard(max_failures=5, lockout_seconds=300)
         self.engine = FakeEngine()
@@ -420,6 +432,10 @@ class FakeProvider(Provider):
     @provide(scope=Scope.APP)
     def provide_notifier_client(self) -> INotifierClient:
         return self._fakes.notifier_client
+
+    @provide(scope=Scope.APP)
+    def provide_shortener_client(self) -> IShortenerClient:
+        return self._fakes.shortener
 
     @provide(scope=Scope.APP)
     def provide_users_cache(self) -> UsersCache:

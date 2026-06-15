@@ -84,6 +84,7 @@ class BookingMeetingLinkItemResponse(BaseModel):
     participant: ParticipantResponse
     meeting_url: str
     created_at: datetime
+    click_count: int | None = None
 
     @classmethod
     def from_dto(cls, dto: BookingMeetingLinkItemDto) -> BookingMeetingLinkItemResponse:
@@ -93,6 +94,7 @@ class BookingMeetingLinkItemResponse(BaseModel):
             participant=ParticipantResponse.from_dto(dto.participant),
             meeting_url=dto.meeting_url,
             created_at=dto.created_at,
+            click_count=dto.click_count,
         )
 
 

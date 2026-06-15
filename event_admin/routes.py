@@ -1,7 +1,10 @@
+import asyncio
 import hmac
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import httpx
 import structlog
@@ -25,6 +28,7 @@ from event_admin.interfaces.bookings import IBookingsController
 from event_admin.interfaces.event_publisher import IEventPublisher
 from event_admin.interfaces.notifier import INotifierClient
 from event_admin.interfaces.password import IPasswordService
+from event_admin.interfaces.shortener import IShortenerClient
 from event_admin.interfaces.totp import ITOTPService
 from event_admin.interfaces.users import IUsersClient
 from event_admin.schemas.auth import LoginRequest, LoginResponse
@@ -114,6 +118,19 @@ def _build_reminder_payload(details: Any, client_user: dict[str, Any]) -> dict[s
             "requested_at": datetime.now(UTC).isoformat(),
         },
     }
+
+
+def _ident_from_meeting_url(meeting_url: str) -> str | None:
+    """Extract the shortener ident (last non-empty path segment) from a short URL."""
+    segment = urlsplit(meeting_url).path.rstrip("/").rsplit("/", 1)[-1]
+    return segment or None
+
+
+async def _link_click_count(shortener: IShortenerClient, meeting_url: str) -> int | None:
+    ident = _ident_from_meeting_url(meeting_url)
+    if ident is None:
+        return None
+    return await shortener.get_click_count(ident)
 
 
 # Public routes (no auth required)
@@ -271,6 +288,7 @@ async def list_future_email_bounced_bookings(
 async def get_booking_details(
     booking_uid: Annotated[str, Path(min_length=1)],
     controller: FromDishka[IBookingsController],
+    shortener: FromDishka[IShortenerClient],
 ) -> BookingDetailsResponse:
     booking_details_dto = await controller.get_booking_details(booking_uid)
     if booking_details_dto is None:
@@ -279,6 +297,11 @@ async def get_booking_details(
             "booking_not_found",
             f"Booking with uid={booking_uid!r} not found",
         )
+    links = booking_details_dto.meeting_links
+    if links:
+        counts = await asyncio.gather(*(_link_click_count(shortener, link.meeting_url) for link in links))
+        enriched = tuple(replace(link, click_count=count) for link, count in zip(links, counts, strict=True))
+        booking_details_dto = replace(booking_details_dto, meeting_links=enriched)
     return BookingDetailsResponse.from_dto(booking_details_dto)
 
 

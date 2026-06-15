@@ -50,6 +50,7 @@ class BookingMeetingLinkItemDto:
     occurred_at: datetime
     created_at: datetime
     updated_at: datetime
+    click_count: int | None = None
 
 
 @dataclass(slots=True, frozen=True)
