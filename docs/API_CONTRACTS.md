@@ -257,6 +257,34 @@ Change the client assigned to a booking to an existing client user. Publishes Cl
 
 ---
 
+### POST /bookings/{booking_uid}/send-client-reminder
+
+Trigger an immediate reminder notification for a future, active booking. Resolves the client's **current email** from event-users (by `user_id` of the client participant), then publishes a `notification.send_requested` CloudEvent with trigger `BOOKING_REMINDER` (source `admin`) via event-receiver. Delivery channels are config-driven by the `(BOOKING_REMINDER, client, *)` notification bindings managed in the Notifications admin panel.
+
+A `requested_at` timestamp is embedded in the payload so deliberate resends are not suppressed by event-receiver's 10-minute identical-payload deduplication window.
+
+| | |
+|---|---|
+| **Auth** | Bearer token + admin role |
+| **Path params** | `booking_uid` (str) |
+| **Request body** | None |
+| **Response** | `202 Accepted` -- `{"status": "accepted", "email": "<resolved client email>"}` |
+| **Error codes** | `401`, `403`, `404` (`booking_not_found`), `409` (`no_client_on_booking` / `booking_not_eligible` / `client_has_no_account` / `client_not_found`), `502` (publish to event-receiver failed — reminder NOT sent) |
+| **Notes** | Booking must be future-dated and in an active status. The client participant must have a linked `user_id` account in event-users. Email is resolved from event-users at request time (always current). |
+
+**Error codes detail:**
+
+| Status | `detail.code` | Cause |
+|---|---|---|
+| 404 | `booking_not_found` | No booking row matches the path param |
+| 409 | `no_client_on_booking` | Booking has no client participant |
+| 409 | `booking_not_eligible` | Booking is not future-dated or not in an active status |
+| 409 | `client_has_no_account` | Client participant has no linked `user_id` (no account in event-users) |
+| 409 | `client_not_found` | event-users returned no user for the client's `user_id` |
+| 502 | `event_publish_failed` | event-receiver down/slow/rejecting — reminder was NOT dispatched |
+
+---
+
 ## Users Proxy Endpoints (require `admin` role)
 
 All `/api/users` routes are protected by both `JWTAuthMiddleware` and `Depends(require_admin)`. They proxy requests to the `event-users` service and **re-serialize responses through typed allowlist models** (`schemas/users_proxy.py`: `ProxiedUser`, `ProxiedUsersListResponse`, ...) — unknown upstream fields are dropped, never forwarded. Upstream HTTP errors are forwarded as status codes. Responses are cached in-process (`UsersCache`, default TTL 300s).

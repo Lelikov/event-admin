@@ -34,13 +34,14 @@ This service **reads** from the database owned and written by **event-saver** an
 ```
 event-receiver → RabbitMQ → event-saver (writes DB) ← event-admin (reads DB, exposes API)
       ▲                                               ← event-users (separate users DB)
-      └── event-admin POST /event/admin (user.email.change_requested, booking.client_reassigned)
+      └── event-admin POST /event/admin (user.email.change_requested, booking.client_reassigned,
+                                         notification.send_requested [BOOKING_REMINDER, client])
 ```
 
 - **`event-saver`** — consumes RabbitMQ, writes all tables (`bookings`, `participants`, `events`, etc.)
 - **`event-users`** — separate service managing users; `participants.user_id` references its UUID PK
 - **Database migrations** live in **`event-saver/alembic/`** — never create migrations here. The single event-admin-owned table (`admin_users`) has tracked DDL in `scripts/admin_users.sql`
-- **Writes** go out as CloudEvents via `EventPublisherClient` → event-receiver `POST /event/admin`; publish failures map to 502 (`EventPublishError`)
+- **Writes** go out as CloudEvents via `EventPublisherClient` → event-receiver `POST /event/admin`; publish failures map to 502 (`EventPublishError`). Published event types: `user.email.change_requested`, `booking.client_reassigned`, and `notification.send_requested` (BOOKING_REMINDER, client — from `POST /bookings/{booking_uid}/send-client-reminder`, which resolves the client's current email from event-users before publishing)
 
 ### Notifications proxy
 
