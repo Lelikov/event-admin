@@ -30,6 +30,7 @@ from event_admin.dto.bookings import (
     BookingFutureBouncedEmailItemDto,
     BookingListFiltersDto,
     BookingListItemDto,
+    BookingMeetingLinkItemDto,
     ParticipantDto,
 )
 from event_admin.interfaces.admin_users import IAdminUsersDBAdapter
@@ -65,26 +66,54 @@ def make_settings(**overrides: Any) -> Settings:
     return Settings(_env_file=None, **defaults)
 
 
-def make_booking_details(booking_uid: str = "book-1") -> BookingDetailsDto:
+_UNSET: object = object()
+
+
+def make_booking_details(
+    booking_uid: str = "book-1",
+    *,
+    start_time: dt.datetime | None = NOW,
+    end_time: dt.datetime | None = NOW,
+    current_status: str | None = "created",
+    has_client: bool = True,
+    client_user_id: object = _UNSET,
+    meeting_links: tuple[BookingMeetingLinkItemDto, ...] = (),
+) -> BookingDetailsDto:
+    client_participant = None
+    if has_client:
+        resolved = uuid.uuid4() if client_user_id is _UNSET else client_user_id
+        client_participant = ParticipantDto(user_id=resolved)  # type: ignore[arg-type]
     return BookingDetailsDto(
         id=1,
         booking_uid=booking_uid,
         first_seen_at=NOW,
         last_seen_at=NOW,
-        start_time=NOW,
-        end_time=NOW,
-        current_status="created",
+        start_time=start_time,
+        end_time=end_time,
+        current_status=current_status,
         created_at=NOW,
         updated_at=NOW,
         current_organizer_participant=ParticipantDto(user_id=uuid.uuid4()),
-        current_client_participant=ParticipantDto(user_id=uuid.uuid4()),
+        current_client_participant=client_participant,
         organizer_history=(),
-        meeting_links=(),
+        meeting_links=meeting_links,
         email_notifications=(),
         telegram_notifications=(),
         chat_events=(),
         video_events=(),
         lifecycle_events=(),
+    )
+
+
+def make_meeting_link(*, user_id: uuid.UUID, meeting_url: str) -> BookingMeetingLinkItemDto:
+    return BookingMeetingLinkItemDto(
+        id=1,
+        participant=ParticipantDto(user_id=user_id),
+        meeting_url=meeting_url,
+        source_event_id=None,
+        occurred_at=NOW,
+        created_at=NOW,
+        updated_at=NOW,
     )
 
 

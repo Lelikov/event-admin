@@ -1,6 +1,7 @@
 import hmac
 import uuid
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 import httpx
 import structlog
@@ -73,6 +74,46 @@ def _notifier_proxy_error(exc: httpx.HTTPStatusError) -> HTTPException:
     upstream_status = exc.response.status_code
     message = f"Notifier service returned an error (status {upstream_status})"
     return http_error(upstream_status, "notifier_service_error", message)
+
+
+_REMINDER_INELIGIBLE_STATUSES = frozenset({"cancelled", "completed", "no_show"})
+
+
+def _reminder_eligible(details: Any) -> bool:
+    """Return True only for a future booking that is not cancelled/finished."""
+    if details.start_time is None or details.start_time <= datetime.now(UTC):
+        return False
+    return details.current_status not in _REMINDER_INELIGIBLE_STATUSES
+
+
+def _client_meeting_url(details: Any, client_user_id: uuid.UUID) -> str:
+    """Return the client's meeting link if present, else the most recent link, else empty string."""
+    links = details.meeting_links
+    if not links:
+        return ""
+    for link in links:
+        if link.participant.user_id == client_user_id:
+            return link.meeting_url
+    return max(links, key=lambda link: link.created_at).meeting_url
+
+
+def _build_reminder_payload(details: Any, client_user: dict[str, Any]) -> dict[str, Any]:
+    email = client_user["email"]
+    client_user_id = details.current_client_participant.user_id
+    return {
+        "booking_id": details.booking_uid,
+        "trigger_event": "BOOKING_REMINDER",
+        "recipients": [{"email": email, "role": "client", "locale": None}],
+        "template_data": {
+            "booking_uid": details.booking_uid,
+            "start_time": details.start_time.isoformat() if details.start_time else None,
+            "end_time": details.end_time.isoformat() if details.end_time else None,
+            "client_name": client_user.get("name") or "",
+            "client_email": email,
+            "meeting_url": _client_meeting_url(details, client_user_id),
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    }
 
 
 # Public routes (no auth required)
@@ -282,6 +323,58 @@ async def reassign_booking_client(
     )
 
     return {"status": "accepted"}
+
+
+@bookings_router.post(
+    "/{booking_uid}/send-client-reminder",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send the client a meeting reminder",
+    description="Resolve the client's CURRENT email from event-users and publish a "
+    "BOOKING_REMINDER notification command for the client.",
+)
+async def send_client_reminder(
+    booking_uid: str,
+    controller: FromDishka[IBookingsController],
+    client: FromDishka[IUsersClient],
+    publisher: FromDishka[IEventPublisher],
+    user: Annotated[TokenPayload, Depends(require_admin)],
+) -> dict[str, str]:
+    details = await controller.get_booking_details(booking_uid)
+    if details is None:
+        raise http_error(
+            status.HTTP_404_NOT_FOUND, "booking_not_found", f"Booking with uid={booking_uid!r} not found"
+        )
+
+    client_participant = details.current_client_participant
+    if client_participant is None:
+        raise http_error(status.HTTP_409_CONFLICT, "no_client_on_booking", "Booking has no client participant")
+
+    if not _reminder_eligible(details):
+        raise http_error(
+            status.HTTP_409_CONFLICT,
+            "booking_not_eligible",
+            "Reminder can only be sent for a future, active booking",
+        )
+
+    if client_participant.user_id is None:
+        raise http_error(
+            status.HTTP_409_CONFLICT,
+            "client_has_no_account",
+            "Client has no linked account; current email cannot be resolved",
+        )
+
+    try:
+        client_user = await client.get_user(client_participant.user_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise http_error(status.HTTP_409_CONFLICT, "client_not_found", "Client account not found") from exc
+        raise _users_proxy_error(exc) from exc
+
+    payload = _build_reminder_payload(details, client_user)
+    await publisher.publish(source="admin", event_type="notification.send_requested", data=payload)
+    email = client_user["email"]
+    logger.info("client_reminder_sent", booking_uid=booking_uid, email=email, requested_by=user.sub)
+    return {"status": "accepted", "email": email}
 
 
 # Users routes (proxy to event-users service)
