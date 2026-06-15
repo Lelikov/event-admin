@@ -23,7 +23,7 @@ async def test_get_config_without_token_returns_401(client) -> None:
 
 async def test_put_config_without_token_returns_401(client) -> None:
     response = await client.put(
-        "/api/notifications/config/BOOKING_CREATED/email",
+        "/api/notifications/config/BOOKING_CREATED/organizer/email",
         json={"enabled": True},
     )
     assert response.status_code == 401
@@ -67,13 +67,23 @@ async def test_get_config_returns_upstream_response(client, admin_headers, fakes
 
 async def test_put_config_returns_ok(client, admin_headers, fakes) -> None:
     response = await client.put(
-        "/api/notifications/config/BOOKING_CREATED/email",
+        "/api/notifications/config/BOOKING_CREATED/organizer/email",
         json={"enabled": False, "unisender_template_id": None},
         headers=admin_headers,
     )
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+async def test_put_notification_config_forwards_role(client, admin_headers, fakes) -> None:
+    response = await client.put(
+        "/api/notifications/config/BOOKING_CREATED/organizer/email",
+        json={"enabled": True, "unisender_template_id": "uuid-x"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert fakes.notifier_client.put_calls[-1] == ("BOOKING_CREATED", "organizer", "email")
 
 
 async def test_unisender_templates_returns_list(client, admin_headers, fakes) -> None:
@@ -121,7 +131,7 @@ async def test_upstream_error_on_put_is_mapped(client, admin_headers, fakes) -> 
     fakes.notifier_client.error = _make_upstream_error(400)
 
     response = await client.put(
-        "/api/notifications/config/BOOKING_CREATED/telegram",
+        "/api/notifications/config/BOOKING_CREATED/organizer/telegram",
         json={"enabled": True, "telegram_body": "{% bad jinja"},
         headers=admin_headers,
     )

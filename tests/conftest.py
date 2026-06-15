@@ -276,6 +276,7 @@ class FakeNotifierClient:
     def __init__(self) -> None:
         self.config_response: dict[str, Any] = {"bindings": []}
         self.put_response: dict[str, Any] = {"status": "ok"}
+        self.put_calls: list[tuple[str, str, str]] = []
         self.templates_response: dict[str, Any] = {"templates": []}
         self.preview_response: dict[str, Any] = {"rendered": "preview text"}
         self.error: httpx.HTTPStatusError | None = None
@@ -285,9 +286,12 @@ class FakeNotifierClient:
             raise self.error
         return self.config_response
 
-    async def put_config(self, trigger_event: str, channel: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def put_config(
+        self, trigger_event: str, recipient_role: str, channel: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
         if self.error is not None:
             raise self.error
+        self.put_calls.append((trigger_event, recipient_role, channel))
         return self.put_response
 
     async def unisender_templates(self, *, refresh: bool) -> dict[str, Any]:

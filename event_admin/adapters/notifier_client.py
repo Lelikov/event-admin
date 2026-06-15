@@ -19,9 +19,11 @@ class NotifierClient:
         response.raise_for_status()
         return response.json()
 
-    async def put_config(self, trigger_event: str, channel: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def put_config(
+        self, trigger_event: str, recipient_role: str, channel: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
         response = await self._client.put(
-            f"/api/notifications/config/{trigger_event}/{channel}",
+            f"/api/notifications/config/{trigger_event}/{recipient_role}/{channel}",
             json=body,
             headers=self._headers,
         )

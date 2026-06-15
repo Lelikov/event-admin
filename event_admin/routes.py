@@ -635,18 +635,19 @@ async def proxy_get_notification_config(client: FromDishka[INotifierClient]) -> 
 
 
 @notifications_router.put(
-    "/config/{trigger_event}/{channel}",
+    "/config/{trigger_event}/{recipient_role}/{channel}",
     summary="Update notification binding",
-    description="Proxy to event-notifier. Enable/disable a channel and update its template config.",
+    description="Proxy to event-notifier. Enable/disable a channel and update its per-role template config.",
 )
 async def proxy_put_notification_config(
     trigger_event: str,
+    recipient_role: str,
     channel: str,
     body: dict,
     client: FromDishka[INotifierClient],
 ) -> dict:
     try:
-        return await client.put_config(trigger_event, channel, body)
+        return await client.put_config(trigger_event, recipient_role, channel, body)
     except httpx.HTTPStatusError as exc:
         raise _notifier_proxy_error(exc) from exc
 
