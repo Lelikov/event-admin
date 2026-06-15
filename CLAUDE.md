@@ -25,7 +25,7 @@ ruff format .
 pre-commit run --all-files
 ```
 
-**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `BLACKLIST_SERVICE_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`, `NOTIFIER_SERVICE_URL`, `NOTIFIER_ADMIN_TOKEN`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
+**Configuration:** Requires a `.env` file (see `.env.example`). Required vars: `POSTGRES_DSN`, `JWT_SECRET_KEY`, `USERS_SERVICE_URL`, `USERS_SERVICE_API_TOKEN`, `CACHE_INVALIDATION_TOKEN`, `BLACKLIST_SERVICE_TOKEN`, `EVENT_RECEIVER_URL`, `EVENT_RECEIVER_API_KEY`, `NOTIFIER_SERVICE_URL`, `NOTIFIER_ADMIN_TOKEN`, `SHORTENER_URL`, `SHORTENER_API_KEY`. Optional: `DEBUG`, `LOG_LEVEL`, `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_AUDIENCE`, `JWT_ISSUER`, `USERS_CACHE_TTL_SECONDS`, `EVENT_PUBLISH_ATTEMPTS`, `EVENT_PUBLISH_TIMEOUT_SECONDS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`. Outside `DEBUG=True`, secrets must be ≥16 chars and non-placeholder (startup fails fast). `DEBUG` never affects authentication.
 
 ## Service role in the system
 
@@ -72,6 +72,7 @@ Layered async FastAPI service for reading booking data from PostgreSQL.
 - **`adapters/sql.py`** — `SqlExecutor` wraps `AsyncSession` with `text()` queries; used by all DB adapters
 - **`adapters/users_client.py`** — `UsersClient`; httpx-based proxy to `event-users` service (lookup via `GET /api/users/by-identity`); caches responses via `UsersCache`
 - **`adapters/notifier_client.py`** — `NotifierClient`; httpx-based proxy to `event-notifier` admin API (`NOTIFIER_SERVICE_URL`); sends `Authorization: Bearer <NOTIFIER_ADMIN_TOKEN>`; implements `INotifierClient` protocol (`interfaces/notifier.py`)
+- **`adapters/shortener_client.py`** — `ShortenerClient`; httpx adapter that calls `GET /api/v1/urls/{ident}/stats` on event-shortener (`SHORTENER_URL`, `SHORTENER_API_KEY`); implements `IShortenerClient` protocol (`interfaces/shortener.py`); used by the bookings controller to enrich meeting links with `click_count` (best-effort, swallows all errors)
 - **`adapters/event_publisher.py`** — `EventPublisherClient`; publishes binary-mode CloudEvents to event-receiver `POST /event/admin` with tenacity retries; raises `EventPublishError` (mapped to 502)
 - **`interfaces/`** — Protocol-based interfaces: `ISqlExecutor`, `ISqlExecutorFactory`, `IBookingsDBAdapter`, `IBookingsController`, `IAdminUsersDBAdapter`, `IPasswordService`, `ITOTPService`, `IUsersClient`, `IEventPublisher`, `INotifierClient`
 - **`services/password.py`** — `PasswordService`; bcrypt password verification (`IPasswordService`)

@@ -223,7 +223,7 @@ A valid token with `role=user` will receive `403 Forbidden`.
 
 - `ParticipantResponse`: `{ user_id: UUID | None }`
 - `BookingOrganizerHistoryItemResponse`: `{ id, organizer_participant, effective_from }`
-- `BookingMeetingLinkItemResponse`: `{ id, participant, meeting_url, created_at }`
+- `BookingMeetingLinkItemResponse`: `{ id, participant, meeting_url, created_at, click_count: int | null }` — `click_count` is fetched best-effort from event-shortener by extracting the ident from the last path segment of `meeting_url`; `null` when event-shortener is unreachable or the URL is not a shortener link (never fails the booking detail response)
 - `BookingEmailNotificationItemResponse`: `{ id, participant, trigger_event, sent_at, last_status, status_history[] }`
 - `BookingEmailStatusHistoryItemResponse`: `{ id, status, clicked_url, created_at }`
 - `BookingTelegramNotificationItemResponse`: `{ id, participant, trigger_event, source_event_id, sent_at, created_at }`
