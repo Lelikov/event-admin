@@ -51,6 +51,11 @@ an `INotifierClient` protocol, a `NotifierClient` httpx adapter (`NOTIFIER_SERVI
 and a `_notifier_proxy_error` error mapper in `routes.py`. The admin-frontend "Уведомления"
 page is the only caller.
 
+The binding PUT path carries `recipient_role` between trigger and channel:
+`PUT /api/notifications/config/{trigger_event}/{recipient_role}/{channel}` (proxied verbatim
+to event-notifier; `recipient_role` must be `client` or `organizer` — notifier returns 400
+`unknown role` otherwise).
+
 ## Architecture
 
 Layered async FastAPI service for reading booking data from PostgreSQL.
