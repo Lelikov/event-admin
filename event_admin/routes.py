@@ -57,6 +57,7 @@ from event_admin.services.users_cache import UsersCache
 
 class ChangeEmailRequest(BaseModel):
     new_email: EmailStr
+    booking_uid: str | None = None
 
 
 class ReassignClientRequest(BaseModel):
@@ -364,9 +365,7 @@ async def send_client_reminder(
 ) -> dict[str, str]:
     details = await controller.get_booking_details(booking_uid)
     if details is None:
-        raise http_error(
-            status.HTTP_404_NOT_FOUND, "booking_not_found", f"Booking with uid={booking_uid!r} not found"
-        )
+        raise http_error(status.HTTP_404_NOT_FOUND, "booking_not_found", f"Booking with uid={booking_uid!r} not found")
 
     client_participant = details.current_client_participant
     if client_participant is None:
@@ -514,6 +513,7 @@ async def change_user_email(
             "old_email": old_email,
             "new_email": new_email,
             "requested_by": user.sub,
+            "booking_uid": body.booking_uid,
         },
     )
 

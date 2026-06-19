@@ -77,3 +77,25 @@ async def test_change_email_taken_email_409_checked_lowercased(client, admin_hea
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "email_already_in_use"
     assert fakes.publisher.published == []
+
+
+async def test_change_email_includes_booking_uid_in_payload(client, admin_headers, fakes, client_user) -> None:
+    response = await client.post(
+        f"/api/users/id/{client_user}/change-email",
+        json={"new_email": "fresh@example.com", "booking_uid": "book-123"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 202
+    event = fakes.publisher.published[0]
+    assert event["data"]["booking_uid"] == "book-123"
+
+
+async def test_change_email_booking_uid_optional(client, admin_headers, fakes, client_user) -> None:
+    response = await client.post(
+        f"/api/users/id/{client_user}/change-email",
+        json={"new_email": "fresh@example.com"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 202
+    event = fakes.publisher.published[0]
+    assert event["data"]["booking_uid"] is None
